@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seguimiento CETI — Hospital San Roque</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+  :root{
+    --paper:#F3EEE2;
+    --paper-2:#ECE5D4;
+    --ink:#22201B;
+    --ink-soft:#57534A;
+    --teal:#1F4B45;
+    --teal-deep:#153531;
+    --teal-pale:#DCE8E4;
+    --mustard:#B98536;
+    --mustard-pale:#F1E3C8;
+    --brick:#9C3B30;
+    --brick-pale:#F2DCD8;
+    --moss:#4C7A5B;
+    --moss-pale:#DCE9DF;
+    --line:#D3C9B3;
+    --white:#FCFAF5;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    font-size:15px;
+    line-height:1.5;
+  }
+  h1,h2,h3{ font-family:'Source Serif 4', serif; font-weight:600; margin:0; color:var(--teal-deep); }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .wrap{ max-width:960px; margin:0 auto; padding:28px 20px 80px; }
+
+  header.top{ border-bottom:2px solid var(--teal-deep); padding-bottom:18px; margin-bottom:22px; }
+  header.top h1{ font-size:28px; letter-spacing:-0.01em; }
+  header.top p{ margin:6px 0 0; color:var(--ink-soft); font-size:14px; max-width:60ch; }
+
+  .roletabs{ display:flex; gap:2px; margin:20px 0 18px; border-bottom:1px solid var(--line); }
+  .roletab{
+    padding:9px 18px; cursor:pointer; font-size:14px; color:var(--ink-soft);
+    border:1px solid transparent; border-bottom:none; background:none; font-family:inherit;
+    position:relative; top:1px;
+  }
+  .roletab.active{
+    color:var(--teal-deep); font-weight:600; background:var(--white);
+    border-color:var(--line); border-bottom:1px solid var(--white);
+  }
+
+  .toolbar{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px; }
+  .toolbar input[type=text]{
+    flex:1; min-width:180px; padding:9px 11px; border:1px solid var(--line); background:var(--white);
+    font-family:inherit; font-size:14px; color:var(--ink); border-radius:2px;
+  }
+  select{ padding:9px 11px; border:1px solid var(--line); background:var(--white); font-family:inherit; font-size:14px; border-radius:2px; color:var(--ink); }
+
+  button{ font-family:inherit; cursor:pointer; border-radius:2px; }
+  .btn{
+    padding:9px 16px; background:var(--teal); color:var(--white); border:1px solid var(--teal);
+    font-size:14px; font-weight:500;
+  }
+  .btn:hover{ background:var(--teal-deep); }
+  .btn.secondary{ background:var(--white); color:var(--teal-deep); border:1px solid var(--teal-deep); }
+  .btn.secondary:hover{ background:var(--teal-pale); }
+  .btn.danger{ background:var(--white); color:var(--brick); border:1px solid var(--brick); }
+  .btn.danger:hover{ background:var(--brick-pale); }
+  .btn.small{ padding:5px 11px; font-size:12.5px; }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+
+  .stats{ display:flex; gap:1px; background:var(--line); border:1px solid var(--line); margin-bottom:20px; }
+  .stat{ flex:1; background:var(--white); padding:12px 14px; }
+  .stat .n{ font-family:'Source Serif 4',serif; font-size:24px; color:var(--teal-deep); font-weight:600; }
+  .stat .l{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
+
+  .expediente{
+    background:var(--white); border:1px solid var(--line); border-left:5px solid var(--teal);
+    padding:16px 18px; margin-bottom:12px; cursor:pointer;
+  }
+  .expediente:hover{ border-left-color:var(--teal-deep); }
+  .expediente.no_aprobado{ border-left-color:var(--brick); }
+  .expediente.aprobado{ border-left-color:var(--moss); }
+  .expediente.pendiente{ border-left-color:var(--mustard); }
+  .exp-top{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .exp-top h3{ font-size:17px; }
+  .exp-meta{ font-size:12.5px; color:var(--ink-soft); margin-top:3px; }
+  .badge{
+    font-size:11.5px; padding:3px 9px; border-radius:2px; white-space:nowrap; font-weight:500;
+    background:var(--teal-pale); color:var(--teal-deep);
+  }
+  .badge.no_aprobado{ background:var(--brick-pale); color:var(--brick); }
+  .badge.aprobado{ background:var(--moss-pale); color:var(--moss); }
+  .badge.pendiente{ background:var(--mustard-pale); color:var(--mustard); }
+  .badge.neutral{ background:var(--paper-2); color:var(--ink-soft); border:1px solid var(--line); }
+
+  .resultado-chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:9px; }
+  .resultado-chip{ font-size:12px; padding:4px 10px; border-radius:2px; }
+
+  .stepper{ display:flex; align-items:center; margin-top:12px; }
+  .step{ display:flex; flex-direction:column; align-items:center; flex:1; position:relative; }
+  .step .dot{ width:11px; height:11px; border-radius:50%; background:var(--line); border:2px solid var(--line); z-index:1; }
+  .step.done .dot{ background:var(--teal); border-color:var(--teal); }
+  .step.current .dot{ background:var(--white); border-color:var(--mustard); }
+  .step.warn .dot{ background:var(--white); border-color:var(--brick); }
+  .step .lbl{ font-size:10.5px; color:var(--ink-soft); margin-top:5px; text-align:center; }
+  .step:not(:last-child)::after{
+    content:''; position:absolute; top:5px; left:50%; width:100%; height:2px; background:var(--line); z-index:0;
+  }
+  .step.done:not(:last-child)::after{ background:var(--teal); }
+
+  .empty{ padding:40px 20px; text-align:center; color:var(--ink-soft); border:1px dashed var(--line); background:var(--white); }
+
+  .panel{ background:var(--white); border:1px solid var(--line); padding:22px; margin-bottom:16px; }
+  .panel h2{ font-size:20px; margin-bottom:4px; }
+  .back{ background:none; border:none; color:var(--teal-deep); font-size:13px; padding:0; margin-bottom:14px; text-decoration:underline; }
+
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:12.5px; color:var(--ink-soft); margin-bottom:4px; }
+  .field input, .field select, .field textarea{
+    width:100%; padding:9px 11px; border:1px solid var(--line); background:var(--paper); font-family:inherit; font-size:14px; border-radius:2px; color:var(--ink);
+  }
+  .field textarea{ min-height:64px; resize:vertical; }
+
+  .divider{ border:none; border-top:1px solid var(--line); margin:20px 0; }
+  .section-title{ font-size:13px; text-transform:none; color:var(--teal-deep); font-weight:600; margin-bottom:10px; letter-spacing:.01em; }
+
+  .round{ border:1px solid var(--line); padding:12px 14px; margin-bottom:10px; background:var(--paper); }
+  .round-top{ display:flex; justify-content:space-between; font-size:12.5px; color:var(--ink-soft); margin-bottom:6px; }
+  .round-body{ font-size:13.5px; }
+  .round-body p{ margin:3px 0; }
+
+  .doc-item{ display:flex; align-items:center; gap:10px; border:1px solid var(--line); background:var(--paper); padding:10px 12px; margin-bottom:8px; }
+  .doc-item .doc-info{ flex:1; min-width:0; }
+  .doc-item .doc-name{ font-size:13.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc-item .doc-meta{ font-size:11.5px; color:var(--ink-soft); margin-top:2px; }
+  .doc-item .doc-actions{ display:flex; gap:6px; flex-shrink:0; }
+
+  .warn-box{ background:var(--brick-pale); border:1px solid var(--brick); color:var(--brick); padding:10px 13px; font-size:13px; margin-bottom:12px; }
+  .info-box{ background:var(--teal-pale); border:1px solid var(--teal); color:var(--teal-deep); padding:10px 13px; font-size:13px; margin-bottom:12px; }
+
+  .overlay{
+    position:fixed; inset:0; background:rgba(34,32,27,.45); display:none; align-items:flex-start; justify-content:center;
+    padding:40px 16px; overflow-y:auto; z-index:50;
+  }
+  .overlay.open{ display:flex; }
+  .modal{ background:var(--white); border:1px solid var(--line); max-width:520px; width:100%; padding:24px; }
+  .modal h2{ font-size:19px; margin-bottom:16px; }
+  .modal-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+
+  .ref-toggle{ font-size:12.5px; color:var(--teal-deep); text-decoration:underline; background:none; border:none; padding:0; margin-bottom:16px; }
+  .ref-box{ display:none; font-size:13px; color:var(--ink-soft); background:var(--paper-2); border:1px solid var(--line); padding:14px 16px; margin-bottom:16px; }
+  .ref-box.open{ display:block; }
+  .ref-box p{ margin:6px 0; }
+
+  footer.foot{ margin-top:40px; font-size:12px; color:var(--ink-soft); border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+
+  @media (max-width:560px){
+    .grid2{ grid-template-columns:1fr; }
+    .stats{ flex-wrap:wrap; }
+    .stat{ min-width:45%; }
+  }
+
+  .lock-btn{ margin-left:auto; font-size:12.5px; color:var(--ink-soft); background:none; border:none; text-decoration:underline; padding:9px 4px; cursor:pointer; }
+
+  @media print{
+    header.top, .roletabs, .toolbar, .back, .lock-btn, footer.foot, .btn, input, select, .ref-toggle{ display:none !important; }
+    body{ background:#fff; }
+    .panel{ border:1px solid #999; break-inside:avoid; }
+    .expediente{ break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">Cargando…</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modalBody"></div>
+</div>
+
+<script>
+/* ---------------- conexión a Supabase ---------------- */
+// La URL, la clave y la contraseña de CETI se configuran en config.js
+// (así no hay que tocar este archivo para cambiarlas).
+const sb = window.supabase.createClient(window.CETI_CONFIG.url, window.CETI_CONFIG.anonKey);
+const CETI_PASSWORD = window.CETI_CONFIG.cetiPassword || 'ceti2026';
+const BUCKET = 'adjuntos';
+
+let state = {
+  role: 'alumno',
+  trabajos: [],
+  loaded: false,
+  loadError: false,
+  filterText: '',
+  filterEstado: '',
+  selectedId: null,
+  miNombre: localStorage.getItem('ceti_mi_nombre') || '',
+  cetiUnlocked: sessionStorage.getItem('ceti_unlocked') === '1'
+};
+
+const TIPOS = [
+  'Proyecto de investigación',
+  'Trabajo de Investigación',
+  'Monografía',
+  'Presentación de Caso Clínico',
+  'Trabajo de Revisión Bibliográfica',
+  'Presentación en actividad científica (Congreso/Jornada)'
+];
+
+const ADJUNTO_CATEGORIAS = [
+  'Proyecto de investigación',
+  'Trabajo final',
+  'Consentimiento informado',
+  'Compromiso de confidencialidad',
+  'Hoja de evaluación',
+  'Otro / Anexo'
+];
+
+const TAMANO_MAX_MB = 20; // Supabase free tier permite hasta 50 MB por archivo; dejamos margen
+
+function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
+function today(){ return new Date().toISOString().slice(0,10); }
+function fmtDate(d){ if(!d) return '—'; const [y,m,day]=d.split('-'); return day+'/'+m+'/'+y; }
+function esc(s){ return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function nuevoTrabajo(datos){
+  return {
+    id: uid(),
+    titulo: datos.titulo,
+    tipo: datos.tipo,
+    investigador: { nombre: datos.nombre, servicio: datos.servicio, anio: datos.anio, email: datos.email },
+    director: datos.director,
+    numeroIngreso: '',
+    fechaIngreso: '',
+    requiereCIEIS: null, // null = sin definir, true/false
+    cieisAprobado: false,
+    proyecto: { rounds: [] },
+    trabajoFinal: { rounds: [] },
+    entrega: { copias:false, firmaCETI:false, firmaCCDI:false, fecha:'' },
+    adjuntos: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+/* ---------------- storage (Supabase) ---------------- */
+async function loadData(){
+  const { data, error } = await sb.from('trabajos').select('*').order('created_at', { ascending:false });
+  if(error){
+    console.error(error);
+    state.loadError = true;
+    state.trabajos = [];
+  } else {
+    state.trabajos = data.map(row => {
+      const t = row.data;
+      if(!t.adjuntos) t.adjuntos = [];
+      return t;
+    });
+  }
+  state.loaded = true;
+  render();
+}
+
+// Guarda (crea o actualiza) un único expediente. Cada trabajo es una fila
+// propia en la tabla, así que esto no toca los demás.
+async function guardarTrabajo(t){
+  t.updatedAt = Date.now();
+  const { error } = await sb.from('trabajos').upsert({
+    id: t.id,
+    data: t,
+    updated_at: new Date().toISOString()
+  });
+  if(error){
+    console.error(error);
+    alert('No se pudo guardar el cambio: ' + error.message);
+  }
+  return !error;
+}
+
+function saveNombre(nombre){
+  state.miNombre = nombre;
+  try{ localStorage.setItem('ceti_mi_nombre', nombre); }catch(e){}
+}
+
+/* ---------------- lógica de estado del trabajo ---------------- */
+function ultimaRonda(stage){
+  return stage.rounds.length ? stage.rounds[stage.rounds.length-1] : null;
+}
+
+function estadoProyecto(t){
+  const r = ultimaRonda(t.proyecto);
+  if(!r) return 'no_enviado';
+  if(r.resultado === 'en_evaluacion') return 'en_evaluacion';
+  if(r.resultado === 'no_aprobado') return t.proyecto.rounds.length>=3 ? 'agotado' : 'requiere_correccion';
+  if(r.resultado === 'cieis') return 'en_cieis';
+  if(r.resultado === 'aprobado') return 'aprobado';
+  return 'no_enviado';
+}
+
+function proyectoListoParaFinal(t){
+  const ep = estadoProyecto(t);
+  if(ep !== 'aprobado') return false;
+  if(t.requiereCIEIS === true && !t.cieisAprobado) return false;
+  return true;
+}
+
+function estadoTrabajoFinal(t){
+  const r = ultimaRonda(t.trabajoFinal);
+  if(!r) return 'no_enviado';
+  if(r.resultado === 'en_evaluacion') return 'en_evaluacion';
+  if(r.resultado === 'no_aprobado') return t.trabajoFinal.rounds.length>=3 ? 'agotado' : 'requiere_correccion';
+  if(r.resultado === 'aprobado') return 'aprobado';
+  return 'no_enviado';
+}
+
+function estadoGeneral(t){
+  const ep = estadoProyecto(t);
+  if(ep === 'no_enviado') return {label:'Título registrado — falta enviar proyecto', tone:'pendiente', step:1};
+  if(ep === 'en_evaluacion') return {label:'Proyecto en evaluación (ronda '+t.proyecto.rounds.length+')', tone:'pendiente', step:2};
+  if(ep === 'requiere_correccion') return {label:'Proyecto — requiere corrección (ronda '+t.proyecto.rounds.length+' de 3)', tone:'no_aprobado', step:2};
+  if(ep === 'agotado') return {label:'Proyecto no aprobado tras 3 rondas — revisar viabilidad', tone:'no_aprobado', step:2};
+  if(ep === 'en_cieis') return {label:'Proyecto aprobado por CETI — en revisión CIEIS', tone:'pendiente', step:3};
+  // ep === 'aprobado'
+  if(!proyectoListoParaFinal(t)) return {label:'Proyecto aprobado — pendiente aprobación CIEIS', tone:'pendiente', step:3};
+  const ef = estadoTrabajoFinal(t);
+  if(ef === 'no_enviado') return {label:'Proyecto aprobado — pendiente enviar trabajo final', tone:'pendiente', step:4};
+  if(ef === 'en_evaluacion') return {label:'Trabajo final en evaluación (ronda '+t.trabajoFinal.rounds.length+')', tone:'pendiente', step:4};
+  if(ef === 'requiere_correccion') return {label:'Trabajo final — requiere corrección (ronda '+t.trabajoFinal.rounds.length+' de 3)', tone:'no_aprobado', step:4};
+  if(ef === 'agotado') return {label:'Trabajo final no aprobado tras 3 rondas — revisar viabilidad', tone:'no_aprobado', step:4};
+  // ef === aprobado
+  const e = t.entrega;
+  if(e.copias && e.firmaCETI && e.firmaCCDI) return {label:'Finalizado — firmado por CETI y CCDI', tone:'aprobado', step:5};
+  return {label:'Trabajo final aprobado — pendiente entrega y firmas', tone:'pendiente', step:5};
+}
+
+const STEP_LABELS = ['Título','Proyecto','CIEIS','Trabajo final','Entrega/Firma'];
+
+const RESULTADO_ETAPA = {
+  no_enviado: { label:'Sin enviar', tone:'neutral' },
+  en_evaluacion: { label:'En evaluación', tone:'pendiente' },
+  requiere_correccion: { label:'No aprobado — corrección pendiente', tone:'no_aprobado' },
+  agotado: { label:'No aprobado (3 rondas agotadas)', tone:'no_aprobado' },
+  aprobado: { label:'Aprobado', tone:'aprobado' },
+  en_cieis: { label:'Aprobado por CETI — en CIEIS', tone:'pendiente' }
+};
+
+function resultadoChips(t){
+  const ep = estadoProyecto(t);
+  const ef = estadoTrabajoFinal(t);
+  const rp = RESULTADO_ETAPA[ep];
+  const rf = RESULTADO_ETAPA[ef];
+  return `<div class="resultado-chips">
+    <span class="resultado-chip badge ${rp.tone}">Proyecto: ${rp.label}</span>
+    <span class="resultado-chip badge ${rf.tone}">Trabajo final: ${rf.label}</span>
+  </div>`;
+}
+
+/* ---------------- acciones ---------------- */
+function abrirModalNuevo(){
+  document.getElementById('modalBody').innerHTML = `
+    <h2>Nuevo trabajo de investigación</h2>
+    <div class="field"><label>Título del trabajo</label><input id="f_titulo" type="text" placeholder="Ej: Prevalencia de..."></div>
+    <div class="field"><label>Tipo de producción científica</label>
+      <select id="f_tipo">${TIPOS.map(t=>`<option>${esc(t)}</option>`).join('')}</select>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Investigador (nombre)</label><input id="f_nombre" type="text" value="${esc(state.miNombre)}"></div>
+      <div class="field"><label>Servicio</label><input id="f_servicio" type="text"></div>
+      <div class="field"><label>Año de residencia</label><input id="f_anio" type="text" placeholder="Ej: 2º año"></div>
+      <div class="field"><label>Email de contacto</label><input id="f_email" type="text"></div>
+    </div>
+    <div class="field"><label>Director / Tutor</label><input id="f_director" type="text"></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn" onclick="crearTrabajo()">Registrar título</button>
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('open');
+}
+
+function cerrarModal(){ document.getElementById('overlay').classList.remove('open'); }
+
+async function crearTrabajo(){
+  const titulo = document.getElementById('f_titulo').value.trim();
+  const nombre = document.getElementById('f_nombre').value.trim();
+  if(!titulo || !nombre){ alert('Completá al menos el título y el nombre del investigador.'); return; }
+  const t = nuevoTrabajo({
+    titulo,
+    tipo: document.getElementById('f_tipo').value,
+    nombre,
+    servicio: document.getElementById('f_servicio').value.trim(),
+    anio: document.getElementById('f_anio').value.trim(),
+    email: document.getElementById('f_email').value.trim(),
+    director: document.getElementById('f_director').value.trim()
+  });
+  saveNombre(nombre);
+  const ok = await guardarTrabajo(t);
+  if(!ok) return;
+  state.trabajos.unshift(t);
+  cerrarModal();
+  state.selectedId = t.id;
+  render();
+}
+
+async function enviarAEvaluacion(id, stage){
+  const t = state.trabajos.find(x=>x.id===id);
+  if(!t) return;
+  const s = stage === 'proyecto' ? t.proyecto : t.trabajoFinal;
+  if(s.rounds.length >= 3){ alert('Ya se utilizaron las 3 rondas de evaluación permitidas por el POE.'); return; }
+  s.rounds.push({ n: s.rounds.length+1, fechaEnvio: today(), evaluador:'', resultado:'en_evaluacion', comentarios:'', fechaResultado:'' });
+  await guardarTrabajo(t);
+  render();
+}
+
+function abrirModalResultado(id, stage){
+  const t = state.trabajos.find(x=>x.id===id);
+  const s = stage === 'proyecto' ? t.proyecto : t.trabajoFinal;
+  const r = ultimaRonda(s);
+  if(!r || r.resultado !== 'en_evaluacion'){ return; }
+  const opcionesCIEIS = stage === 'proyecto' ? `<option value="cieis">Continuar evaluación por Comité de Ética (CIEIS)</option>` : '';
+  document.getElementById('modalBody').innerHTML = `
+    <h2>Registrar resultado — ${stage === 'proyecto' ? 'Proyecto' : 'Trabajo final'} (ronda ${r.n})</h2>
+    <div class="field"><label>Evaluador/a</label><input id="m_eval" type="text" value="${esc(r.evaluador)}"></div>
+    <div class="field"><label>Resultado</label>
+      <select id="m_resultado">
+        <option value="aprobado">Aprobado</option>
+        <option value="no_aprobado">No aprobado</option>
+        ${opcionesCIEIS}
+      </select>
+    </div>
+    <div class="field"><label>Comentarios / observaciones metodológicas</label><textarea id="m_comentarios"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn" onclick="guardarResultado('${id}','${stage}')">Guardar resultado</button>
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('open');
+}
+
+async function guardarResultado(id, stage){
+  const t = state.trabajos.find(x=>x.id===id);
+  const s = stage === 'proyecto' ? t.proyecto : t.trabajoFinal;
+  const r = ultimaRonda(s);
+  r.evaluador = document.getElementById('m_eval').value.trim();
+  r.resultado = document.getElementById('m_resultado').value;
+  r.comentarios = document.getElementById('m_comentarios').value.trim();
+  r.fechaResultado = today();
+  await guardarTrabajo(t);
+  cerrarModal();
+  render();
+}
+
+async function actualizarCampo(id, path, value){
+  const t = state.trabajos.find(x=>x.id===id);
+  const keys = path.split('.');
+  let obj = t;
+  for(let i=0;i<keys.length-1;i++) obj = obj[keys[i]];
+  obj[keys[keys.length-1]] = value;
+  await guardarTrabajo(t);
+  render();
+}
+
+async function eliminarTrabajo(id){
+  if(!confirm('¿Eliminar este expediente? Esta acción no se puede deshacer.')) return;
+  const { error } = await sb.from('trabajos').delete().eq('id', id);
+  if(error){ alert('No se pudo eliminar: ' + error.message); return; }
+  state.trabajos = state.trabajos.filter(x=>x.id!==id);
+  state.selectedId = null;
+  render();
+}
+
+function setRole(r){
+  if(r === 'ceti' && !state.cetiUnlocked){ abrirModalPassword(); return; }
+  state.role = r; state.selectedId = null; render();
+}
+
+function abrirModalPassword(){
+  document.getElementById('modalBody').innerHTML = `
+    <h2>Vista CETI</h2>
+    <p style="font-size:13.5px; color:var(--ink-soft); margin-top:-8px;">Ingresá la clave de la Comisión para ver y editar los expedientes.</p>
+    <div class="field"><label>Clave</label><input id="p_pass" type="password" onkeydown="if(event.key==='Enter') validarPassword()"></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn" onclick="validarPassword()">Entrar</button>
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('open');
+  setTimeout(()=>{ const el=document.getElementById('p_pass'); if(el) el.focus(); }, 50);
+}
+
+function validarPassword(){
+  const val = document.getElementById('p_pass').value;
+  if(val === CETI_PASSWORD){
+    state.cetiUnlocked = true;
+    try{ sessionStorage.setItem('ceti_unlocked', '1'); }catch(e){}
+    state.role = 'ceti';
+    state.selectedId = null;
+    cerrarModal();
+    render();
+  } else {
+    alert('Clave incorrecta.');
+  }
+}
+
+function bloquearCETI(){
+  state.cetiUnlocked = false;
+  try{ sessionStorage.removeItem('ceti_unlocked'); }catch(e){}
+  state.role = 'alumno';
+  state.selectedId = null;
+  render();
+}
+
+function exportarExcel(){
+  const filas = state.trabajos.map(t=>{
+    const eg = estadoGeneral(t);
+    const up = ultimaRonda(t.proyecto);
+    const uf = ultimaRonda(t.trabajoFinal);
+    return {
+      'Número de ingreso': t.numeroIngreso,
+      'Fecha de ingreso': t.fechaIngreso,
+      'Título': t.titulo,
+      'Tipo': t.tipo,
+      'Investigador': t.investigador.nombre,
+      'Servicio': t.investigador.servicio,
+      'Año de residencia': t.investigador.anio,
+      'Email': t.investigador.email,
+      'Director/Tutor': t.director,
+      'Estado general': eg.label,
+      'Rondas proyecto': t.proyecto.rounds.length,
+      'Último resultado proyecto': up ? up.resultado : '',
+      'Requiere CIEIS': t.requiereCIEIS===true ? 'Sí' : t.requiereCIEIS===false ? 'No' : 'Sin definir',
+      'CIEIS aprobado': t.cieisAprobado ? 'Sí' : 'No',
+      'Rondas trabajo final': t.trabajoFinal.rounds.length,
+      'Último resultado trabajo final': uf ? uf.resultado : '',
+      'Copias entregadas': t.entrega.copias ? 'Sí' : 'No',
+      'Firma CETI': t.entrega.firmaCETI ? 'Sí' : 'No',
+      'Firma CCDI': t.entrega.firmaCCDI ? 'Sí' : 'No',
+      'Fecha de firma': t.entrega.fecha
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(filas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Expedientes CETI');
+  XLSX.writeFile(wb, 'expedientes_ceti_'+today()+'.xlsx');
+}
+
+function exportarPDF(){ window.print(); }
+
+/* ---------------- documentos adjuntos ---------------- */
+function formatSize(bytes){
+  if(bytes < 1024) return bytes + ' B';
+  if(bytes < 1024*1024) return Math.round(bytes/1024) + ' KB';
+  return (bytes/(1024*1024)).toFixed(1) + ' MB';
+}
+
+function abrirModalAdjunto(trabajoId){
+  document.getElementById('modalBody').innerHTML = `
+    <h2>Agregar documento</h2>
+    <div class="field"><label>Categoría</label>
+      <select id="a_categoria">${ADJUNTO_CATEGORIAS.map(c=>`<option>${esc(c)}</option>`).join('')}</select>
+    </div>
+
+    <div class="field">
+      <label>¿Cómo lo querés agregar?</label>
+      <select id="a_modo" onchange="cambiarModoAdjunto()">
+        <option value="archivo">Subir archivo (máx. ${TAMANO_MAX_MB} MB)</option>
+        <option value="link">Pegar un link (Google Drive, OneDrive, etc.)</option>
+      </select>
+    </div>
+
+    <div id="a_modo_archivo">
+      <div class="field"><label>Archivo (PDF, Word, imagen)</label>
+        <input id="a_file" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+      </div>
+    </div>
+    <div id="a_modo_link" style="display:none;">
+      <div class="field"><label>Nombre del documento</label><input id="a_link_nombre" type="text" placeholder="Ej: Consentimiento informado escaneado"></div>
+      <div class="field"><label>Link (debe empezar con http:// o https://)</label><input id="a_link_url" type="text" placeholder="https://drive.google.com/..."></div>
+      <p style="font-size:12px; color:var(--ink-soft); margin-top:-6px;">Asegurate de que el link tenga permisos para que CETI pueda abrirlo (compartir como "Cualquiera con el enlace").</p>
+    </div>
+
+    <div class="field"><label>Subido por</label><input id="a_subidopor" type="text" value="${esc(state.miNombre || (state.role==='ceti'?'CETI':''))}"></div>
+    <p id="a_error" style="color:var(--brick); font-size:13px; display:none;"></p>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn" id="a_btn" onclick="confirmarAdjunto('${trabajoId}')">Guardar</button>
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('open');
+}
+
+function cambiarModoAdjunto(){
+  const modo = document.getElementById('a_modo').value;
+  document.getElementById('a_modo_archivo').style.display = modo === 'archivo' ? 'block' : 'none';
+  document.getElementById('a_modo_link').style.display = modo === 'link' ? 'block' : 'none';
+}
+
+function confirmarAdjunto(trabajoId){
+  const modo = document.getElementById('a_modo').value;
+  if(modo === 'link') guardarAdjuntoLink(trabajoId);
+  else subirAdjunto(trabajoId);
+}
+
+async function guardarAdjuntoLink(trabajoId){
+  const errorEl = document.getElementById('a_error');
+  errorEl.style.display = 'none';
+  const nombre = document.getElementById('a_link_nombre').value.trim();
+  const url = document.getElementById('a_link_url').value.trim();
+  if(!nombre || !url){ errorEl.textContent='Completá el nombre y el link.'; errorEl.style.display='block'; return; }
+  if(!/^https?:\/\//i.test(url)){ errorEl.textContent='El link debe empezar con http:// o https://'; errorEl.style.display='block'; return; }
+  const t = state.trabajos.find(x=>x.id===trabajoId);
+  t.adjuntos.push({
+    id: uid(),
+    nombre,
+    tipo: 'link',
+    url,
+    categoria: document.getElementById('a_categoria').value,
+    subidoPor: document.getElementById('a_subidopor').value.trim() || '—',
+    fecha: today()
+  });
+  await guardarTrabajo(t);
+  cerrarModal();
+  render();
+}
+
+async function subirAdjunto(trabajoId){
+  const fileInput = document.getElementById('a_file');
+  const file = fileInput.files[0];
+  const errorEl = document.getElementById('a_error');
+  errorEl.style.display = 'none';
+  if(!file){ errorEl.textContent = 'Elegí un archivo.'; errorEl.style.display='block'; return; }
+  if(file.size > TAMANO_MAX_MB*1024*1024){
+    errorEl.textContent = `Este archivo pesa ${formatSize(file.size)}. El máximo configurado acá es ${TAMANO_MAX_MB} MB.`;
+    errorEl.style.display = 'block';
+    return;
+  }
+  const btn = document.getElementById('a_btn');
+  btn.disabled = true; btn.textContent = 'Subiendo…';
+
+  try{
+    const adjId = uid();
+    const path = trabajoId + '/' + adjId + '_' + file.name;
+    const { error: upErr } = await sb.storage.from(BUCKET).upload(path, file);
+    if(upErr) throw upErr;
+    const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(path);
+
+    const t = state.trabajos.find(x=>x.id===trabajoId);
+    t.adjuntos.push({
+      id: adjId,
+      nombre: file.name,
+      tipo: 'archivo',
+      mimeType: file.type || 'application/octet-stream',
+      size: file.size,
+      path: path,
+      url: urlData.publicUrl,
+      categoria: document.getElementById('a_categoria').value,
+      subidoPor: document.getElementById('a_subidopor').value.trim() || '—',
+      fecha: today()
+    });
+    await guardarTrabajo(t);
+    cerrarModal();
+    render();
+  }catch(e){
+    console.error(e);
+    errorEl.textContent = 'No se pudo subir el archivo: ' + (e.message || 'error desconocido') + '. Probá de nuevo o usá la opción de link.';
+    errorEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Guardar';
+  }
+}
+
+function descargarAdjunto(adjId, nombre, mimeType, tipo, url){
+  if(!url){ alert('No se encontró el archivo.'); return; }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function eliminarAdjunto(trabajoId, adjId){
+  if(!confirm('¿Eliminar este documento?')) return;
+  const t = state.trabajos.find(x=>x.id===trabajoId);
+  const adj = t.adjuntos.find(a=>a.id===adjId);
+  t.adjuntos = t.adjuntos.filter(a=>a.id!==adjId);
+  if(adj && adj.tipo === 'archivo' && adj.path){
+    try{ await sb.storage.from(BUCKET).remove([adj.path]); }catch(e){ /* puede no existir */ }
+  }
+  await guardarTrabajo(t);
+  render();
+}
+
+function renderAdjuntos(t){
+  const lista = t.adjuntos.length ? t.adjuntos.map(a => `
+    <div class="doc-item">
+      <div class="doc-info">
+        <div class="doc-name">${esc(a.nombre)}${a.tipo==='link' ? ' <span style="color:var(--ink-soft); font-weight:400;">(enlace externo)</span>' : ''}</div>
+        <div class="doc-meta">${esc(a.categoria)} · ${a.tipo==='link' ? 'enlace' : formatSize(a.size)} · subido por ${esc(a.subidoPor)} el ${fmtDate(a.fecha)}</div>
+      </div>
+      <div class="doc-actions">
+        <button class="btn secondary small" onclick="descargarAdjunto('${a.id}','${esc(a.nombre).replace(/'/g,"\\'")}','${a.mimeType||''}','${a.tipo||'archivo'}','${a.url||''}')">${a.tipo==='link' ? 'Abrir' : 'Ver/Descargar'}</button>
+        <button class="btn danger small" onclick="eliminarAdjunto('${t.id}','${a.id}')">Eliminar</button>
+      </div>
+    </div>
+  `).join('') : `<p style="font-size:13px; color:var(--ink-soft);">Todavía no se agregó ningún documento.</p>`;
+
+  return `<div class="panel">
+    <div class="exp-top"><div class="section-title">Documentos adjuntos</div>
+      <button class="btn secondary small" onclick="abrirModalAdjunto('${t.id}')">+ Agregar documento</button>
+    </div>
+    ${lista}
+  </div>`;
+}
+function abrirDetalle(id){ state.selectedId = id; render(); }
+function volver(){ state.selectedId = null; render(); }
+function toggleRef(){ document.getElementById('refbox').classList.toggle('open'); }
+
+/* ---------------- render ---------------- */
+function render(){
+  const app = document.getElementById('app');
+  if(!state.loaded){ app.innerHTML = 'Cargando…'; return; }
+
+  if(state.loadError){
+    app.innerHTML = `<div class="panel" style="border-color:var(--brick);">
+      <h2 style="color:var(--brick);">No se pudo conectar con la base de datos</h2>
+      <p style="margin-top:10px;">Revisá que <code>config.js</code> tenga la URL y la clave (anon key) correctas de tu proyecto de Supabase, y que hayas ejecutado el script <code>supabase-setup.sql</code> para crear la tabla. Mirá el archivo README.md para el paso a paso.</p>
+    </div>`;
+    return;
+  }
+
+  const header = `
+    <header class="top">
+      <h1>Seguimiento de trabajos de investigación</h1>
+      <p>Comisión Evaluadora de Trabajos de Investigación (CETI) — Nuevo Hospital San Roque. Los datos se comparten entre alumnos y la Comisión.</p>
+    </header>
+    <div class="roletabs">
+      <button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>
+      <button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>
+      ${state.role==='ceti' ? `<button class="lock-btn" onclick="bloquearCETI()">Cerrar sesión CETI</button>` : ''}
+    </div>
+  `;
+
+  let body = '';
+  if(state.selectedId){
+    body = renderDetalle(state.selectedId);
+  } else if(state.role === 'alumno'){
+    body = renderListaAlumno();
+  } else {
+    body = renderListaCETI();
+  }
+
+  app.innerHTML = header + body + `
+    <footer class="foot">
+      <span>Referencia: POE CETI, versión 5.0 (dic. 2024) — hasta 3 rondas de evaluación por escrito, 30 días máximo por ronda.</span>
+    </footer>
+  `;
+}
+
+function renderListaAlumno(){
+  const filtro = state.filterText.toLowerCase();
+  const propios = state.trabajos.filter(t => !filtro || t.investigador.nombre.toLowerCase().includes(filtro));
+
+  const refBox = `
+    <button class="ref-toggle" onclick="toggleRef()">Ver plazos de presentación según año de residencia</button>
+    <div class="ref-box" id="refbox">
+      <p><strong>1er año:</strong> presentar el tema del proyecto 60 días antes de finalizar el año, con nota firmada por el residente y su jefe.</p>
+      <p><strong>2º año:</strong> presentar el proyecto aprobado por CETI, CCDI y CIEIS/COEIS (si corresponde), 60 días antes de finalizar el año.</p>
+      <p><strong>3er año (y último año en residencias de 4):</strong> presentar el trabajo final finalizado y aprobado por CETI y CCDI, 60 días antes de finalizar el año.</p>
+      <p>Los plazos del proyecto y su finalización no son modificables, incluso si el tema cambia.</p>
+    </div>
+  `;
+
+  const toolbar = `
+    <div class="toolbar">
+      <input type="text" placeholder="Buscar por tu nombre…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <button class="btn" onclick="abrirModalNuevo()">+ Registrar título de trabajo</button>
+    </div>
+  `;
+
+  if(propios.length === 0){
+    return refBox + toolbar + `<div class="empty">Todavía no hay ningún trabajo registrado${state.filterText? ' con ese nombre':''}. Empezá cargando el título del tuyo.</div>`;
+  }
+
+  return refBox + toolbar + propios.map(cardExpediente).join('');
+}
+
+function renderListaCETI(){
+  const stats = {
+    total: state.trabajos.length,
+    en_eval: state.trabajos.filter(t=>{const e=estadoGeneral(t); return e.tone==='pendiente';}).length,
+    correccion: state.trabajos.filter(t=>{const e=estadoGeneral(t); return e.tone==='no_aprobado';}).length,
+    finalizados: state.trabajos.filter(t=>{const e=estadoGeneral(t); return e.step===5 && e.tone==='aprobado';}).length,
+  };
+
+  const filtro = state.filterText.toLowerCase();
+  let lista = state.trabajos.filter(t =>
+    !filtro || t.titulo.toLowerCase().includes(filtro) || t.investigador.nombre.toLowerCase().includes(filtro)
+  );
+  if(state.filterEstado){
+    lista = lista.filter(t => estadoGeneral(t).tone === state.filterEstado);
+  }
+
+  const statsHtml = `
+    <div class="stats">
+      <div class="stat"><div class="n mono">${stats.total}</div><div class="l">Expedientes totales</div></div>
+      <div class="stat"><div class="n mono">${stats.en_eval}</div><div class="l">En curso / evaluación</div></div>
+      <div class="stat"><div class="n mono">${stats.correccion}</div><div class="l">Requieren corrección</div></div>
+      <div class="stat"><div class="n mono">${stats.finalizados}</div><div class="l">Finalizados y firmados</div></div>
+    </div>
+  `;
+
+  const toolbar = `
+    <div class="toolbar">
+      <input type="text" placeholder="Buscar por título o investigador…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <select onchange="state.filterEstado=this.value; render();">
+        <option value="" ${state.filterEstado===''?'selected':''}>Todos los estados</option>
+        <option value="pendiente" ${state.filterEstado==='pendiente'?'selected':''}>En curso</option>
+        <option value="no_aprobado" ${state.filterEstado==='no_aprobado'?'selected':''}>Requiere corrección</option>
+        <option value="aprobado" ${state.filterEstado==='aprobado'?'selected':''}>Finalizado</option>
+      </select>
+      <button class="btn" onclick="abrirModalNuevo()">+ Registrar título de trabajo</button>
+      <button class="btn secondary" onclick="exportarExcel()">Exportar a Excel</button>
+    </div>
+  `;
+
+  if(lista.length === 0){
+    return statsHtml + toolbar + `<div class="empty">No se encontraron expedientes con ese filtro.</div>`;
+  }
+
+  return statsHtml + toolbar + lista.map(cardExpediente).join('');
+}
+
+function cardExpediente(t){
+  const eg = estadoGeneral(t);
+  return `
+    <div class="expediente ${eg.tone}" onclick="abrirDetalle('${t.id}')">
+      <div class="exp-top">
+        <div>
+          <h3>${esc(t.titulo)}</h3>
+          <div class="exp-meta">${esc(t.tipo)} · ${esc(t.investigador.nombre)}${t.investigador.servicio? ' · '+esc(t.investigador.servicio):''}${t.numeroIngreso? ' · Ingreso Nº '+esc(t.numeroIngreso):''}</div>
+        </div>
+        <span class="badge ${eg.tone}">${eg.label}</span>
+      </div>
+      ${resultadoChips(t)}
+      ${stepperHtml(eg.step, eg.tone)}
+    </div>
+  `;
+}
+
+function stepperHtml(currentStep, tone){
+  return `<div class="stepper">` + STEP_LABELS.map((lbl,i)=>{
+    const n = i+1;
+    let cls = '';
+    if(n < currentStep) cls = 'done';
+    else if(n === currentStep) cls = (tone==='no_aprobado') ? 'warn' : 'current';
+    return `<div class="step ${cls}"><div class="dot"></div><div class="lbl">${lbl}</div></div>`;
+  }).join('') + `</div>`;
+}
+
+function renderDetalle(id){
+  const t = state.trabajos.find(x=>x.id===id);
+  if(!t) { state.selectedId=null; return renderListaAlumno(); }
+  const eg = estadoGeneral(t);
+  const isCETI = state.role === 'ceti';
+
+  let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
+    <button class="back" onclick="volver()">← Volver al listado</button>
+    <button class="btn secondary small" onclick="exportarPDF()">Exportar PDF</button>
+  </div>`;
+
+  html += `<div class="panel">
+    <div class="exp-top">
+      <h2>${esc(t.titulo)}</h2>
+      <span class="badge ${eg.tone}">${eg.label}</span>
+    </div>
+    <div class="exp-meta" style="margin-top:6px;">${esc(t.tipo)}</div>
+    ${resultadoChips(t)}
+    ${stepperHtml(eg.step, eg.tone)}
+    <hr class="divider">
+    <div class="grid2">
+      <div><div class="section-title">Investigador</div>
+        <p>${esc(t.investigador.nombre)}<br>${esc(t.investigador.servicio||'—')} · ${esc(t.investigador.anio||'—')}<br>${esc(t.investigador.email||'—')}</p>
+      </div>
+      <div><div class="section-title">Director / Tutor</div><p>${esc(t.director||'—')}</p></div>
+    </div>
+  </div>`;
+
+  // Bloque CETI: datos administrativos
+  if(isCETI){
+    html += `<div class="panel">
+      <div class="section-title">Datos administrativos (CETI)</div>
+      <div class="grid2">
+        <div class="field"><label>Número de ingreso</label><input type="text" value="${esc(t.numeroIngreso)}" onchange="actualizarCampo('${t.id}','numeroIngreso',this.value)"></div>
+        <div class="field"><label>Fecha de ingreso</label><input type="date" value="${esc(t.fechaIngreso)}" onchange="actualizarCampo('${t.id}','fechaIngreso',this.value)"></div>
+        <div class="field"><label>¿Requiere evaluación CIEIS?</label>
+          <select onchange="actualizarCampo('${t.id}','requiereCIEIS', this.value==='si')">
+            <option value="" ${t.requiereCIEIS===null?'selected':''}>Sin definir</option>
+            <option value="si" ${t.requiereCIEIS===true?'selected':''}>Sí</option>
+            <option value="no" ${t.requiereCIEIS===false?'selected':''}>No</option>
+          </select>
+        </div>
+        ${t.requiereCIEIS===true ? `
+        <div class="field"><label>CIEIS aprobado</label>
+          <select onchange="actualizarCampo('${t.id}','cieisAprobado', this.value==='si')">
+            <option value="no" ${!t.cieisAprobado?'selected':''}>Pendiente</option>
+            <option value="si" ${t.cieisAprobado?'selected':''}>Aprobado</option>
+          </select>
+        </div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  html += renderAdjuntos(t);
+
+  html += stageBlock(t, 'proyecto', 'Proyecto de investigación', isCETI, true);
+
+  if(t.requiereCIEIS === true){
+    html += `<div class="panel"><div class="section-title">Comité de Ética (CIEIS)</div>
+      <p style="font-size:13.5px; color:var(--ink-soft);">Este trabajo requiere aprobación del CIEIS antes de continuar con el trabajo final. Estado actual: <strong>${t.cieisAprobado? 'Aprobado' : 'Pendiente'}</strong>.</p>
+    </div>`;
+  }
+
+  const puedeIniciarFinal = proyectoListoParaFinal(t);
+  html += stageBlock(t, 'trabajoFinal', 'Trabajo final', isCETI, puedeIniciarFinal);
+
+  // Entrega y firmas
+  const efAprobado = estadoTrabajoFinal(t) === 'aprobado';
+  html += `<div class="panel">
+    <div class="section-title">Entrega final y firmas</div>
+    ${!efAprobado ? `<p style="font-size:13.5px; color:var(--ink-soft);">Se habilita cuando el trabajo final esté aprobado por la Comisión.</p>` : `
+    <p style="font-size:13.5px; color:var(--ink-soft); margin-bottom:10px;">Presentación en papel: 2 copias impresas, cada una con su hoja de evaluación, para la firma de CETI y CCDI.</p>
+    <div class="grid2">
+      <label style="font-size:13.5px;"><input type="checkbox" ${t.entrega.copias?'checked':''} ${isCETI?'':'disabled'} onchange="actualizarCampo('${t.id}','entrega.copias', this.checked)"> 2 copias impresas entregadas</label>
+      <label style="font-size:13.5px;"><input type="checkbox" ${t.entrega.firmaCETI?'checked':''} ${isCETI?'':'disabled'} onchange="actualizarCampo('${t.id}','entrega.firmaCETI', this.checked)"> Firmado por Coordinador CETI</label>
+      <label style="font-size:13.5px;"><input type="checkbox" ${t.entrega.firmaCCDI?'checked':''} ${isCETI?'':'disabled'} onchange="actualizarCampo('${t.id}','entrega.firmaCCDI', this.checked)"> Firmado por CCDI</label>
+      <div class="field" style="margin:0;"><label>Fecha de firma</label><input type="date" value="${esc(t.entrega.fecha)}" ${isCETI?'':'disabled'} onchange="actualizarCampo('${t.id}','entrega.fecha', this.value)"></div>
+    </div>`}
+  </div>`;
+
+  if(isCETI){
+    html += `<button class="btn danger small" onclick="eliminarTrabajo('${t.id}')">Eliminar expediente</button>`;
+  }
+
+  return html;
+}
+
+function stageBlock(t, stageKey, titulo, isCETI, habilitado){
+  const s = t[stageKey];
+  const estado = stageKey==='proyecto' ? estadoProyecto(t) : estadoTrabajoFinal(t);
+  const ultima = ultimaRonda(s);
+  const puedeEnviar = habilitado && s.rounds.length < 3 && (!ultima || ultima.resultado === 'no_aprobado');
+
+  let rondas = s.rounds.map(r=>{
+    const resLabel = {aprobado:'Aprobado', no_aprobado:'No aprobado', en_evaluacion:'En evaluación', cieis:'Continuar por CIEIS'}[r.resultado] || r.resultado;
+    const tone = r.resultado==='aprobado' ? 'aprobado' : r.resultado==='no_aprobado' ? 'no_aprobado' : 'pendiente';
+    return `<div class="round">
+      <div class="round-top"><span>Ronda ${r.n} · enviado ${fmtDate(r.fechaEnvio)}</span><span class="badge ${tone}">${resLabel}</span></div>
+      <div class="round-body">
+        ${r.evaluador ? `<p><strong>Evaluador/a:</strong> ${esc(r.evaluador)}</p>` : ''}
+        ${r.comentarios ? `<p><strong>Comentarios:</strong> ${esc(r.comentarios)}</p>` : ''}
+        ${r.fechaResultado ? `<p><strong>Resultado registrado:</strong> ${fmtDate(r.fechaResultado)}</p>` : ''}
+        ${isCETI && r.resultado==='en_evaluacion' ? `<button class="btn small" onclick="abrirModalResultado('${t.id}','${stageKey}')">Registrar resultado</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  let aviso = '';
+  if(!habilitado && s.rounds.length===0){
+    aviso = `<p style="font-size:13px; color:var(--ink-soft);">Se habilita cuando la etapa anterior esté aprobada.</p>`;
+  }
+  if(estado === 'agotado'){
+    aviso = `<div class="warn-box">Se agotaron las 3 rondas de evaluación previstas por el POE. Corresponde revisar junto al director/tutor la viabilidad del tema.</div>`;
+  }
+
+  return `<div class="panel">
+    <div class="exp-top"><div class="section-title">${titulo}</div></div>
+    ${aviso}
+    ${rondas || (habilitado ? '' : '')}
+    ${!isCETI && puedeEnviar ? `<button class="btn secondary small" onclick="enviarAEvaluacion('${t.id}','${stageKey}')">Enviar ${stageKey==='proyecto'?'proyecto':'trabajo final'} a evaluación</button>` : ''}
+    ${!s.rounds.length && !habilitado ? '' : ''}
+  </div>`;
+}
+
+/* ---------------- init ---------------- */
+loadData();
+</script>
+</body>
+</html>
