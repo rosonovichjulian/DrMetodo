@@ -186,6 +186,39 @@
 
   footer.foot{ margin-top:40px; font-size:12px; color:var(--ink-soft); border-top:1px solid var(--line); padding-top:14px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
 
+  /* ---- Pantalla de login / registro ---- */
+  .auth-screen{
+    min-height:100vh; width:100%; display:flex; align-items:center; justify-content:center;
+    padding:24px; box-sizing:border-box; position:relative; overflow:hidden;
+    background: linear-gradient(160deg, #0B1C2C 0%, #0E2438 45%, #123049 100%);
+  }
+  .auth-screen::before{
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background-image: repeating-linear-gradient(115deg, rgba(94,234,212,0.07) 0 2px, transparent 2px 42px);
+  }
+  .auth-card{
+    position:relative; z-index:1; background:var(--white); border-radius:14px;
+    padding:38px 34px; max-width:380px; width:100%; box-shadow:0 30px 70px rgba(0,0,0,.4);
+  }
+  .auth-badge{
+    width:52px; height:52px; border-radius:12px; margin:0 auto 16px; display:flex; align-items:center; justify-content:center;
+    font-family:'Source Serif 4', serif; font-weight:700; font-size:16px; color:#fff; letter-spacing:.02em;
+    background: linear-gradient(135deg, #14B8A6, #2563EB);
+  }
+  .auth-card h2{ text-align:center; font-size:20px; }
+  .auth-card p.sub{ text-align:center; color:var(--ink-soft); font-size:12.5px; margin:6px 0 22px; }
+  .auth-field{ margin-bottom:13px; }
+  .auth-field label{ display:block; font-size:11px; color:var(--ink-soft); margin-bottom:4px; text-transform:uppercase; letter-spacing:.05em; }
+  .auth-field input{ width:100%; padding:11px 13px; border:1px solid var(--line); border-radius:8px; font-family:inherit; font-size:14px; box-sizing:border-box; }
+  .auth-submit{
+    width:100%; padding:13px; margin-top:4px; border:none; border-radius:8px; color:#fff; font-weight:600; font-size:14px;
+    background: linear-gradient(90deg, #14B8A6, #2563EB); cursor:pointer;
+  }
+  .auth-submit:hover{ filter:brightness(1.08); }
+  .auth-toggle{ text-align:center; margin-top:16px; font-size:13px; color:var(--ink-soft); }
+  .auth-toggle a{ color:#2563EB; cursor:pointer; text-decoration:underline; }
+  .auth-error{ background:var(--brick-pale); color:var(--brick); border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:14px; }
+
   @media (max-width:560px){
     .grid2{ grid-template-columns:1fr; }
     .stats{ flex-wrap:wrap; }
@@ -214,10 +247,13 @@
 // La URL, la clave y la contraseña de CETI se configuran en config.js
 // (así no hay que tocar este archivo para cambiarlas).
 const sb = window.supabase.createClient(window.CETI_CONFIG.url, window.CETI_CONFIG.anonKey);
-const CETI_PASSWORD = window.CETI_CONFIG.cetiPassword || 'ceti2026';
 const BUCKET = 'adjuntos';
 
 let state = {
+  session: null,
+  isAdmin: false,
+  authChecked: false,
+  authMode: 'login',
   role: 'alumno',
   trabajos: [],
   capacitaciones: [],
@@ -228,11 +264,8 @@ let state = {
   selectedId: null,
   selectedCursoId: null,
   quizResultado: null,
-  miNombre: localStorage.getItem('ceti_mi_nombre') || '',
-  cetiUnlocked: sessionStorage.getItem('ceti_unlocked') === '1'
+  miNombre: localStorage.getItem('ceti_mi_nombre') || ''
 };
-
-let pendingUnlockAction = null;
 
 const TIPOS = [
   'Proyecto de investigación',
@@ -548,57 +581,89 @@ async function eliminarTrabajo(id){
 }
 
 function setRole(r){
-  if(r === 'ceti' && !state.cetiUnlocked){
-    pendingUnlockAction = () => { state.role = 'ceti'; state.selectedId = null; render(); };
-    abrirModalPassword();
-    return;
-  }
+  if(r === 'ceti' && !state.isAdmin){ alert('Tu cuenta no tiene permisos de CETI.'); return; }
   state.role = r; state.selectedId = null; state.selectedCursoId = null; render();
 }
 
-// Ejecuta fn si ya está desbloqueado CETI; si no, pide la clave primero y
-// recién después ejecuta fn. Se usa para cualquier acción reservada a CETI
-// (entrar a la vista, o editar/crear capacitaciones desde otra sección).
+// Acciones reservadas a CETI (crear/editar/eliminar capacitaciones desde
+// cualquier parte de la app). Ahora se basa en la cuenta real, no en una clave.
 function conAccesoCETI(fn){
-  if(state.cetiUnlocked){ fn(); return; }
-  pendingUnlockAction = fn;
-  abrirModalPassword();
+  if(state.isAdmin){ fn(); return; }
+  alert('Esta acción requiere una cuenta con permisos de CETI.');
 }
 
-function abrirModalPassword(){
-  document.getElementById('modalBody').innerHTML = `
-    <h2>Acceso CETI</h2>
-    <p style="font-size:13.5px; color:var(--ink-soft); margin-top:-8px;">Ingresá la clave de la Comisión para continuar.</p>
-    <div class="field"><label>Clave</label><input id="p_pass" type="password" onkeydown="if(event.key==='Enter') validarPassword()"></div>
-    <div class="modal-actions">
-      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
-      <button class="btn" onclick="validarPassword()">Entrar</button>
-    </div>
-  `;
-  document.getElementById('overlay').classList.add('open');
-  setTimeout(()=>{ const el=document.getElementById('p_pass'); if(el) el.focus(); }, 50);
+/* ---------------- autenticación ---------------- */
+async function initAuth(){
+  const { data:{ session } } = await sb.auth.getSession();
+  state.session = session;
+  state.authChecked = true;
+  if(session){ await afterLogin(); } else { render(); }
+
+  sb.auth.onAuthStateChange(async (_event, session)=>{
+    state.session = session;
+    if(session){ await afterLogin(); }
+    else{ state.isAdmin = false; state.loaded = false; render(); }
+  });
 }
 
-function validarPassword(){
-  const val = document.getElementById('p_pass').value;
-  if(val === CETI_PASSWORD){
-    state.cetiUnlocked = true;
-    try{ sessionStorage.setItem('ceti_unlocked', '1'); }catch(e){}
-    cerrarModal();
-    const fn = pendingUnlockAction;
-    pendingUnlockAction = null;
-    if(fn) fn(); else render();
-  } else {
-    alert('Clave incorrecta.');
-  }
+async function afterLogin(){
+  await checkIsAdmin();
+  await loadData();
 }
 
-function bloquearCETI(){
-  state.cetiUnlocked = false;
-  try{ sessionStorage.removeItem('ceti_unlocked'); }catch(e){}
-  state.role = 'alumno';
-  state.selectedId = null;
+async function checkIsAdmin(){
+  if(!state.session){ state.isAdmin = false; return; }
+  try{
+    const email = state.session.user.email;
+    const { data } = await sb.from('admins').select('email').eq('email', email).maybeSingle();
+    state.isAdmin = !!data;
+  }catch(e){ state.isAdmin = false; }
+}
+
+async function iniciarSesion(){
+  const email = document.getElementById('auth_email').value.trim();
+  const pass = document.getElementById('auth_pass').value;
+  const err = document.getElementById('auth_error');
+  err.style.display = 'none';
+  const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if(error){ err.textContent = error.message; err.style.display = 'block'; }
+}
+
+async function registrarse(){
+  const email = document.getElementById('auth_email').value.trim();
+  const pass = document.getElementById('auth_pass').value;
+  const err = document.getElementById('auth_error');
+  err.style.display = 'none';
+  if(pass.length < 6){ err.textContent = 'La contraseña debe tener al menos 6 caracteres.'; err.style.display='block'; return; }
+  const { error } = await sb.auth.signUp({ email, password: pass });
+  if(error){ err.textContent = error.message; err.style.display = 'block'; return; }
+  alert('Cuenta creada. Ya podés ingresar.');
+  state.authMode = 'login';
   render();
+}
+
+async function cerrarSesionApp(){
+  await sb.auth.signOut();
+  state.role = 'alumno';
+}
+
+function toggleAuthMode(){ state.authMode = state.authMode === 'login' ? 'signup' : 'login'; render(); }
+
+function renderAuthScreen(){
+  const signup = state.authMode === 'signup';
+  return `
+  <div class="auth-screen"><div class="auth-card">
+    <div class="auth-badge">CETI</div>
+    <h2>${signup ? 'Crear cuenta' : 'Iniciar sesión'}</h2>
+    <p class="sub">Seguimiento de trabajos de investigación — Nuevo Hospital San Roque</p>
+    <div id="auth_error" class="auth-error" style="display:none;"></div>
+    <div class="auth-field"><label>Email</label><input id="auth_email" type="email" placeholder="tu-mail@hospital.com"></div>
+    <div class="auth-field"><label>Contraseña</label><input id="auth_pass" type="password" placeholder="••••••••" onkeydown="if(event.key==='Enter') ${signup?'registrarse()':'iniciarSesion()'}"></div>
+    <button class="auth-submit" onclick="${signup?'registrarse()':'iniciarSesion()'}">${signup?'Crear cuenta':'Ingresar'}</button>
+    <div class="auth-toggle">${signup
+      ? '¿Ya tenés cuenta? <a onclick="toggleAuthMode()">Iniciar sesión</a>'
+      : '¿No tenés cuenta? <a onclick="toggleAuthMode()">Registrate</a>'}</div>
+  </div></div>`;
 }
 
 function exportarExcel(){
@@ -811,6 +876,8 @@ function toggleRef(){ document.getElementById('refbox').classList.toggle('open')
 /* ---------------- render ---------------- */
 function render(){
   const app = document.getElementById('app');
+  if(!state.authChecked){ app.innerHTML = 'Cargando…'; return; }
+  if(!state.session){ app.innerHTML = renderAuthScreen(); return; }
   if(!state.loaded){ app.innerHTML = 'Cargando…'; return; }
 
   if(state.loadError){
@@ -833,7 +900,8 @@ function render(){
       <button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>
       <button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>
       <button class="roletab ${state.role==='capacitaciones'?'active':''}" onclick="setRole('capacitaciones')">Capacitaciones</button>
-      ${state.role==='ceti' ? `<button class="lock-btn" onclick="bloquearCETI()">Cerrar sesión CETI</button>` : ''}
+      <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}</span>
+      <button class="lock-btn" onclick="cerrarSesionApp()">Cerrar sesión</button>
     </div>
   `;
 
@@ -1250,7 +1318,7 @@ function renderDetalleCurso(id){
 
   let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
     <button class="back" onclick="volverCapacitaciones()">← Volver a capacitaciones</button>
-    ${state.cetiUnlocked ? `<div style="display:flex; gap:8px;">
+    ${state.isAdmin ? `<div style="display:flex; gap:8px;">
       <button class="btn secondary small" onclick="abrirModalCurso('${c.id}')">Editar</button>
       <button class="btn danger small" onclick="eliminarCurso('${c.id}')">Eliminar</button>
     </div>` : ''}
@@ -1272,7 +1340,7 @@ function renderDetalleCurso(id){
 
   html += renderCuestionario(c);
 
-  if(state.cetiUnlocked && c.resultados.length){
+  if(state.isAdmin && c.resultados.length){
     const filas = [...c.resultados].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
     html += `<div class="panel">
       <div class="section-title">Resultados registrados</div>
@@ -1343,7 +1411,7 @@ async function enviarCuestionario(cursoId){
 }
 
 /* ---------------- init ---------------- */
-loadData();
+initAuth();
 </script>
 </body>
 </html>
