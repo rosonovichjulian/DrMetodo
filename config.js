@@ -1,17 +1,16 @@
 // ============================================================
-// CONFIGURACIÓN — completá estos 3 datos y volvé a subir el archivo
+// CONFIGURACIÓN — url y anonKey de tu proyecto de Supabase
 // ============================================================
 //
-// url y anonKey salen de tu proyecto de Supabase:
-// Panel de Supabase → ícono de engranaje (Project Settings) → API
-//   - "Project URL"      → pegar en "url"
-//   - "anon public" key  → pegar en "anonKey"
+// Panel de Supabase → Project Settings → API
+//   - "Project URL"       → pegar en "url"
+//   - "Publishable key"   → pegar en "anonKey"
 //
-// cetiPassword es la clave para entrar a la Vista CETI dentro de la app
-// (podés cambiarla por la que quieras).
+// El acceso de CETI ya NO se maneja con una clave acá: ahora cada persona
+// entra con su propia cuenta (email + contraseña), y quién tiene permisos
+// de CETI se controla en la tabla "admins" dentro de Supabase (ver README.md).
 
 window.CETI_CONFIG = {
   url: "https://sgvuzflggqzanltmwabp.supabase.co",
-  anonKey: "sb_publishable_dEwazSM6AOBMA1QcEdTnHA_jRso0PPo",
-  cetiPassword: "ceti2026"
+  anonKey: "sb_publishable_dEwazSM6AOBMA1QcEdTnHA_jRso0PPo"
 };
