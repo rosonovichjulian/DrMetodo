@@ -144,6 +144,29 @@
   .doc-item .doc-meta{ font-size:11.5px; color:var(--ink-soft); margin-top:2px; }
   .doc-item .doc-actions{ display:flex; gap:6px; flex-shrink:0; }
 
+  .curso-card{ background:var(--white); border:1px solid var(--line); border-left:5px solid var(--teal); padding:16px 18px; margin-bottom:12px; cursor:pointer; }
+  .curso-card:hover{ border-left-color:var(--teal-deep); }
+  .curso-card h3{ font-size:17px; }
+  .curso-card p{ font-size:13.5px; color:var(--ink-soft); margin:6px 0 0; }
+  .curso-meta{ display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+
+  .video-wrap{ position:relative; padding-top:56.25%; height:0; overflow:hidden; background:var(--paper-2); border:1px solid var(--line); margin:14px 0; }
+  .video-wrap iframe{ position:absolute; top:0; left:0; width:100%; height:100%; border:0; }
+
+  .biblio-item{ font-size:13.5px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .biblio-item:last-child{ border-bottom:none; }
+  .biblio-item a{ color:var(--teal-deep); }
+
+  .quiz-q{ border:1px solid var(--line); background:var(--paper); padding:14px 16px; margin-bottom:12px; }
+  .quiz-q .q-titulo{ font-weight:500; margin-bottom:8px; }
+  .quiz-q label{ display:block; font-size:13.5px; padding:4px 0; cursor:pointer; }
+  .quiz-q.correcta{ border-left:4px solid var(--moss); }
+  .quiz-q.incorrecta{ border-left:4px solid var(--brick); }
+  .quiz-score{ font-family:'Source Serif 4',serif; font-size:22px; color:var(--teal-deep); margin-bottom:14px; }
+
+  .resultado-row{ display:flex; justify-content:space-between; font-size:13.5px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .resultado-row:last-child{ border-bottom:none; }
+
   .warn-box{ background:var(--brick-pale); border:1px solid var(--brick); color:var(--brick); padding:10px 13px; font-size:13px; margin-bottom:12px; }
   .info-box{ background:var(--teal-pale); border:1px solid var(--teal); color:var(--teal-deep); padding:10px 13px; font-size:13px; margin-bottom:12px; }
 
@@ -197,14 +220,19 @@ const BUCKET = 'adjuntos';
 let state = {
   role: 'alumno',
   trabajos: [],
+  capacitaciones: [],
   loaded: false,
   loadError: false,
   filterText: '',
   filterEstado: '',
   selectedId: null,
+  selectedCursoId: null,
+  quizResultado: null,
   miNombre: localStorage.getItem('ceti_mi_nombre') || '',
   cetiUnlocked: sessionStorage.getItem('ceti_unlocked') === '1'
 };
+
+let pendingUnlockAction = null;
 
 const TIPOS = [
   'Proyecto de investigación',
@@ -253,18 +281,37 @@ function nuevoTrabajo(datos){
 
 /* ---------------- storage (Supabase) ---------------- */
 async function loadData(){
-  const { data, error } = await sb.from('trabajos').select('*').order('created_at', { ascending:false });
-  if(error){
-    console.error(error);
+  const [resTrabajos, resCursos] = await Promise.all([
+    sb.from('trabajos').select('*').order('created_at', { ascending:false }),
+    sb.from('capacitaciones').select('*').order('created_at', { ascending:false })
+  ]);
+
+  if(resTrabajos.error){
+    console.error(resTrabajos.error);
     state.loadError = true;
     state.trabajos = [];
   } else {
-    state.trabajos = data.map(row => {
+    state.trabajos = resTrabajos.data.map(row => {
       const t = row.data;
       if(!t.adjuntos) t.adjuntos = [];
       return t;
     });
   }
+
+  if(resCursos.error){
+    console.error(resCursos.error);
+    state.trabajos.length || (state.loadError = true); // no pisa el error si ya había uno
+    state.capacitaciones = [];
+  } else {
+    state.capacitaciones = resCursos.data.map(row => {
+      const c = row.data;
+      if(!c.bibliografia) c.bibliografia = [];
+      if(!c.preguntas) c.preguntas = [];
+      if(!c.resultados) c.resultados = [];
+      return c;
+    });
+  }
+
   state.loaded = true;
   render();
 }
@@ -283,6 +330,29 @@ async function guardarTrabajo(t){
     alert('No se pudo guardar el cambio: ' + error.message);
   }
   return !error;
+}
+
+async function guardarCurso(c){
+  c.updatedAt = Date.now();
+  const { error } = await sb.from('capacitaciones').upsert({
+    id: c.id,
+    data: c,
+    updated_at: new Date().toISOString()
+  });
+  if(error){
+    console.error(error);
+    alert('No se pudo guardar la capacitación: ' + error.message);
+  }
+  return !error;
+}
+
+async function eliminarCurso(id){
+  if(!confirm('¿Eliminar esta capacitación? Esta acción no se puede deshacer.')) return;
+  const { error } = await sb.from('capacitaciones').delete().eq('id', id);
+  if(error){ alert('No se pudo eliminar: ' + error.message); return; }
+  state.capacitaciones = state.capacitaciones.filter(x=>x.id!==id);
+  state.selectedCursoId = null;
+  render();
 }
 
 function saveNombre(nombre){
@@ -478,14 +548,27 @@ async function eliminarTrabajo(id){
 }
 
 function setRole(r){
-  if(r === 'ceti' && !state.cetiUnlocked){ abrirModalPassword(); return; }
-  state.role = r; state.selectedId = null; render();
+  if(r === 'ceti' && !state.cetiUnlocked){
+    pendingUnlockAction = () => { state.role = 'ceti'; state.selectedId = null; render(); };
+    abrirModalPassword();
+    return;
+  }
+  state.role = r; state.selectedId = null; state.selectedCursoId = null; render();
+}
+
+// Ejecuta fn si ya está desbloqueado CETI; si no, pide la clave primero y
+// recién después ejecuta fn. Se usa para cualquier acción reservada a CETI
+// (entrar a la vista, o editar/crear capacitaciones desde otra sección).
+function conAccesoCETI(fn){
+  if(state.cetiUnlocked){ fn(); return; }
+  pendingUnlockAction = fn;
+  abrirModalPassword();
 }
 
 function abrirModalPassword(){
   document.getElementById('modalBody').innerHTML = `
-    <h2>Vista CETI</h2>
-    <p style="font-size:13.5px; color:var(--ink-soft); margin-top:-8px;">Ingresá la clave de la Comisión para ver y editar los expedientes.</p>
+    <h2>Acceso CETI</h2>
+    <p style="font-size:13.5px; color:var(--ink-soft); margin-top:-8px;">Ingresá la clave de la Comisión para continuar.</p>
     <div class="field"><label>Clave</label><input id="p_pass" type="password" onkeydown="if(event.key==='Enter') validarPassword()"></div>
     <div class="modal-actions">
       <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
@@ -501,10 +584,10 @@ function validarPassword(){
   if(val === CETI_PASSWORD){
     state.cetiUnlocked = true;
     try{ sessionStorage.setItem('ceti_unlocked', '1'); }catch(e){}
-    state.role = 'ceti';
-    state.selectedId = null;
     cerrarModal();
-    render();
+    const fn = pendingUnlockAction;
+    pendingUnlockAction = null;
+    if(fn) fn(); else render();
   } else {
     alert('Clave incorrecta.');
   }
@@ -749,12 +832,15 @@ function render(){
     <div class="roletabs">
       <button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>
       <button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>
+      <button class="roletab ${state.role==='capacitaciones'?'active':''}" onclick="setRole('capacitaciones')">Capacitaciones</button>
       ${state.role==='ceti' ? `<button class="lock-btn" onclick="bloquearCETI()">Cerrar sesión CETI</button>` : ''}
     </div>
   `;
 
   let body = '';
-  if(state.selectedId){
+  if(state.role === 'capacitaciones'){
+    body = state.selectedCursoId ? renderDetalleCurso(state.selectedCursoId) : renderListaCapacitaciones();
+  } else if(state.selectedId){
     body = renderDetalle(state.selectedId);
   } else if(state.role === 'alumno'){
     body = renderListaAlumno();
@@ -992,6 +1078,268 @@ function stageBlock(t, stageKey, titulo, isCETI, habilitado){
     ${!isCETI && puedeEnviar ? `<button class="btn secondary small" onclick="enviarAEvaluacion('${t.id}','${stageKey}')">Enviar ${stageKey==='proyecto'?'proyecto':'trabajo final'} a evaluación</button>` : ''}
     ${!s.rounds.length && !habilitado ? '' : ''}
   </div>`;
+}
+
+/* ---------------- capacitaciones ---------------- */
+
+function nuevoCurso(datos){
+  return {
+    id: uid(),
+    titulo: datos.titulo,
+    descripcion: datos.descripcion,
+    youtubeUrl: datos.youtubeUrl,
+    bibliografia: datos.bibliografia,
+    preguntas: datos.preguntas,
+    resultados: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+// Convierte distintos formatos de link de YouTube a una URL de embed.
+// Si no reconoce el formato, devuelve null.
+function youtubeEmbedUrl(url){
+  if(!url) return null;
+  let id = null;
+  const patterns = [
+    /youtu\.be\/([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/watch\?v=([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/shorts\/([A-Za-z0-9_-]{6,})/
+  ];
+  for(const re of patterns){
+    const m = url.match(re);
+    if(m){ id = m[1]; break; }
+  }
+  return id ? `https://www.youtube.com/embed/${id}` : null;
+}
+
+// Formato esperado, una referencia por línea: "Título | https://link"
+// (el link es opcional).
+function parseBibliografia(texto){
+  return texto.split('\n').map(l=>l.trim()).filter(Boolean).map(linea=>{
+    const partes = linea.split('|').map(p=>p.trim());
+    return { titulo: partes[0], url: partes[1] || '' };
+  });
+}
+function bibliografiaATexto(lista){
+  return (lista||[]).map(b => b.url ? `${b.titulo} | ${b.url}` : b.titulo).join('\n');
+}
+
+// Formato esperado, preguntas separadas por una línea en blanco:
+// P: ¿Cuál es la vía de transmisión más común?
+// A) Respiratoria
+// B) Fecal-oral
+// C) Sanguínea
+// R: A
+function parsePreguntas(texto){
+  const bloques = texto.split(/\n\s*\n/).map(b=>b.trim()).filter(Boolean);
+  const preguntas = [];
+  for(const bloque of bloques){
+    const lineas = bloque.split('\n').map(l=>l.trim()).filter(Boolean);
+    let pregunta = '', opciones = [], correctaIndex = -1;
+    for(const linea of lineas){
+      if(/^P:/i.test(linea)) pregunta = linea.replace(/^P:/i,'').trim();
+      else if(/^[A-Za-z]\)/.test(linea)) opciones.push(linea.replace(/^[A-Za-z]\)/,'').trim());
+      else if(/^R:/i.test(linea)){
+        const letra = linea.replace(/^R:/i,'').trim().toUpperCase();
+        correctaIndex = letra.charCodeAt(0) - 65;
+      }
+    }
+    if(pregunta && opciones.length>=2 && correctaIndex>=0 && correctaIndex<opciones.length){
+      preguntas.push({ pregunta, opciones, correctaIndex });
+    }
+  }
+  return preguntas;
+}
+function preguntasATexto(lista){
+  return (lista||[]).map(p=>{
+    const letras = 'ABCDEFGH';
+    const opts = p.opciones.map((o,i)=>`${letras[i]}) ${o}`).join('\n');
+    return `P: ${p.pregunta}\n${opts}\nR: ${letras[p.correctaIndex]}`;
+  }).join('\n\n');
+}
+
+function abrirModalCurso(cursoId){
+  const c = cursoId ? state.capacitaciones.find(x=>x.id===cursoId) : null;
+  document.getElementById('modalBody').innerHTML = `
+    <h2>${c ? 'Editar capacitación' : 'Nueva capacitación'}</h2>
+    <div class="field"><label>Título del curso</label><input id="c_titulo" type="text" value="${esc(c?c.titulo:'')}"></div>
+    <div class="field"><label>Descripción</label><textarea id="c_descripcion">${esc(c?c.descripcion:'')}</textarea></div>
+    <div class="field"><label>Link de YouTube</label><input id="c_youtube" type="text" placeholder="https://www.youtube.com/watch?v=..." value="${esc(c?c.youtubeUrl:'')}"></div>
+    <div class="field"><label>Bibliografía (una por línea: Título | link opcional)</label>
+      <textarea id="c_biblio" style="min-height:80px;" placeholder="Guía clínica de neumonía | https://...
+Capítulo 4 del manual (sin link)">${esc(bibliografiaATexto(c?c.bibliografia:[]))}</textarea>
+    </div>
+    <div class="field"><label>Cuestionario (formato P: / A) / R:, una pregunta por bloque, separadas por línea en blanco)</label>
+      <textarea id="c_preguntas" style="min-height:140px;" placeholder="P: ¿Cuál es la vía de transmisión más común?
+A) Respiratoria
+B) Fecal-oral
+C) Sanguínea
+R: A">${esc(preguntasATexto(c?c.preguntas:[]))}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn" onclick="guardarCursoDesdeForm('${c?c.id:''}')">${c?'Guardar cambios':'Crear capacitación'}</button>
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('open');
+}
+
+async function guardarCursoDesdeForm(cursoId){
+  const titulo = document.getElementById('c_titulo').value.trim();
+  if(!titulo){ alert('Ponele un título al curso.'); return; }
+  const datos = {
+    titulo,
+    descripcion: document.getElementById('c_descripcion').value.trim(),
+    youtubeUrl: document.getElementById('c_youtube').value.trim(),
+    bibliografia: parseBibliografia(document.getElementById('c_biblio').value),
+    preguntas: parsePreguntas(document.getElementById('c_preguntas').value)
+  };
+  let c;
+  if(cursoId){
+    c = state.capacitaciones.find(x=>x.id===cursoId);
+    Object.assign(c, datos);
+  } else {
+    c = nuevoCurso(datos);
+    state.capacitaciones.unshift(c);
+  }
+  const ok = await guardarCurso(c);
+  if(!ok) return;
+  cerrarModal();
+  state.selectedCursoId = c.id;
+  render();
+}
+
+function abrirDetalleCurso(id){ state.selectedCursoId = id; state.quizResultado = null; render(); }
+function volverCapacitaciones(){ state.selectedCursoId = null; state.quizResultado = null; render(); }
+
+function renderListaCapacitaciones(){
+  const filtro = state.filterText.toLowerCase();
+  const lista = state.capacitaciones.filter(c => !filtro || c.titulo.toLowerCase().includes(filtro));
+
+  const toolbar = `
+    <div class="toolbar">
+      <input type="text" placeholder="Buscar capacitación…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <button class="btn" onclick="conAccesoCETI(()=>abrirModalCurso())">+ Nueva capacitación</button>
+    </div>
+  `;
+
+  if(lista.length === 0){
+    return toolbar + `<div class="empty">Todavía no hay capacitaciones cargadas.</div>`;
+  }
+
+  return toolbar + lista.map(c => `
+    <div class="curso-card" onclick="abrirDetalleCurso('${c.id}')">
+      <h3>${esc(c.titulo)}</h3>
+      ${c.descripcion ? `<p>${esc(c.descripcion.slice(0,160))}${c.descripcion.length>160?'…':''}</p>` : ''}
+      <div class="curso-meta">
+        ${c.youtubeUrl ? `<span class="badge neutral">Video</span>` : ''}
+        ${c.preguntas.length ? `<span class="badge neutral">${c.preguntas.length} preguntas</span>` : ''}
+        ${c.bibliografia.length ? `<span class="badge neutral">${c.bibliografia.length} referencias</span>` : ''}
+        ${c.resultados.length ? `<span class="badge aprobado">${c.resultados.length} completado${c.resultados.length===1?'':'s'}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderDetalleCurso(id){
+  const c = state.capacitaciones.find(x=>x.id===id);
+  if(!c){ state.selectedCursoId = null; return renderListaCapacitaciones(); }
+  const embed = youtubeEmbedUrl(c.youtubeUrl);
+
+  let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
+    <button class="back" onclick="volverCapacitaciones()">← Volver a capacitaciones</button>
+    ${state.cetiUnlocked ? `<div style="display:flex; gap:8px;">
+      <button class="btn secondary small" onclick="abrirModalCurso('${c.id}')">Editar</button>
+      <button class="btn danger small" onclick="eliminarCurso('${c.id}')">Eliminar</button>
+    </div>` : ''}
+  </div>`;
+
+  html += `<div class="panel">
+    <h2>${esc(c.titulo)}</h2>
+    ${c.descripcion ? `<p style="margin-top:8px; color:var(--ink-soft);">${esc(c.descripcion)}</p>` : ''}
+    ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen title="${esc(c.titulo)}"></iframe></div>` :
+      (c.youtubeUrl ? `<p style="font-size:13px; color:var(--brick); margin-top:12px;">El link de video no se reconoce como un link válido de YouTube.</p>` : '')}
+  </div>`;
+
+  if(c.bibliografia.length){
+    html += `<div class="panel">
+      <div class="section-title">Bibliografía</div>
+      ${c.bibliografia.map(b => `<div class="biblio-item">${b.url ? `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.titulo)}</a>` : esc(b.titulo)}</div>`).join('')}
+    </div>`;
+  }
+
+  html += renderCuestionario(c);
+
+  if(state.cetiUnlocked && c.resultados.length){
+    const filas = [...c.resultados].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+    html += `<div class="panel">
+      <div class="section-title">Resultados registrados</div>
+      ${filas.map(r => `<div class="resultado-row"><span>${esc(r.nombre)} — ${fmtDate(r.fecha)}</span><span>${r.puntaje}/${r.total}</span></div>`).join('')}
+    </div>`;
+  }
+
+  return html;
+}
+
+function renderCuestionario(c){
+  if(!c.preguntas.length){
+    return `<div class="panel"><div class="section-title">Cuestionario</div><p style="font-size:13px; color:var(--ink-soft);">Esta capacitación todavía no tiene cuestionario cargado.</p></div>`;
+  }
+
+  if(state.quizResultado && state.quizResultado.cursoId === c.id){
+    const r = state.quizResultado;
+    return `<div class="panel">
+      <div class="section-title">Cuestionario</div>
+      <div class="quiz-score">${r.puntaje} / ${r.total} correctas</div>
+      ${c.preguntas.map((p,i)=>{
+        const marcada = r.respuestas[i];
+        const ok = marcada === p.correctaIndex;
+        return `<div class="quiz-q ${ok?'correcta':'incorrecta'}">
+          <div class="q-titulo">${i+1}. ${esc(p.pregunta)}</div>
+          ${p.opciones.map((op,j)=>`<div style="font-size:13.5px; ${j===p.correctaIndex?'font-weight:600;':''} ${j===marcada && !ok ? 'text-decoration:line-through;':''}">${j===p.correctaIndex?'✓ ':''}${esc(op)}</div>`).join('')}
+        </div>`;
+      }).join('')}
+      <button class="btn secondary small" onclick="state.quizResultado=null; render();">Volver a intentar</button>
+    </div>`;
+  }
+
+  return `<div class="panel">
+    <div class="section-title">Cuestionario</div>
+    <div class="field"><label>Tu nombre</label><input id="quiz_nombre" type="text" value="${esc(state.miNombre)}"></div>
+    ${c.preguntas.map((p,i)=>`
+      <div class="quiz-q">
+        <div class="q-titulo">${i+1}. ${esc(p.pregunta)}</div>
+        ${p.opciones.map((op,j)=>`<label><input type="radio" name="quiz_p${i}" value="${j}"> ${esc(op)}</label>`).join('')}
+      </div>
+    `).join('')}
+    <button class="btn" onclick="enviarCuestionario('${c.id}')">Enviar respuestas</button>
+  </div>`;
+}
+
+async function enviarCuestionario(cursoId){
+  const c = state.capacitaciones.find(x=>x.id===cursoId);
+  const nombre = document.getElementById('quiz_nombre').value.trim();
+  if(!nombre){ alert('Ingresá tu nombre antes de enviar.'); return; }
+
+  const respuestas = [];
+  let puntaje = 0;
+  for(let i=0;i<c.preguntas.length;i++){
+    const marcado = document.querySelector(`input[name="quiz_p${i}"]:checked`);
+    const val = marcado ? parseInt(marcado.value,10) : -1;
+    respuestas.push(val);
+    if(val === c.preguntas[i].correctaIndex) puntaje++;
+  }
+  if(respuestas.some(r=>r===-1)){
+    if(!confirm('Dejaste alguna pregunta sin responder. ¿Enviar igual?')) return;
+  }
+
+  saveNombre(nombre);
+  c.resultados.push({ nombre, puntaje, total: c.preguntas.length, fecha: today() });
+  await guardarCurso(c);
+  state.quizResultado = { cursoId, puntaje, total: c.preguntas.length, respuestas };
+  render();
 }
 
 /* ---------------- init ---------------- */
