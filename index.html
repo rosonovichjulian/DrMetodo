@@ -935,13 +935,16 @@ function render(){
       <button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>
       <button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>
       <button class="roletab ${state.role==='capacitaciones'?'active':''}" onclick="setRole('capacitaciones')">Capacitaciones</button>
+      <button class="roletab ${state.role==='impacto'?'active':''}" onclick="setRole('impacto')">Impacto</button>
       <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}</span>
       <button class="lock-btn" onclick="cerrarSesionApp()">Cerrar sesión</button>
     </div>
   `;
 
   let body = '';
-  if(state.role === 'capacitaciones'){
+  if(state.role === 'impacto'){
+    body = renderImpacto();
+  } else if(state.role === 'capacitaciones'){
     body = state.selectedCursoId ? renderDetalleCurso(state.selectedCursoId) : renderListaCapacitaciones();
   } else if(state.selectedId){
     body = renderDetalle(state.selectedId);
@@ -1443,6 +1446,63 @@ async function enviarCuestionario(cursoId){
   await guardarCurso(c);
   state.quizResultado = { cursoId, puntaje, total: c.preguntas.length, respuestas };
   render();
+}
+
+/* ---------------- impacto ---------------- */
+
+// Estimación conservadora, con la misma metodología usada para la feria:
+// 4.5 g CO2e por hoja producida (ISO 14040/44, PAS 2050, marco CEPI) + 1 g
+// CO2e por energía de impresión = 5.5 g por hoja evitada.
+const GR_CO2_POR_HOJA = 5.5;
+const HOJAS_POR_TRABAJO = 8;      // planillas administrativas evitadas por expediente
+const HOJAS_POR_CUESTIONARIO = 2; // hoja de examen + certificado evitados por intento
+
+function calcularImpacto(){
+  const totalTrabajos = state.trabajos.length;
+  const totalCursos = state.capacitaciones.length;
+  const totalIntentos = state.capacitaciones.reduce((acc, c) => acc + (c.resultados ? c.resultados.length : 0), 0);
+  const totalAdjuntosDigitales = state.trabajos.reduce((acc, t) => acc + (t.adjuntos ? t.adjuntos.length : 0), 0);
+
+  const hojasEvitadas = (totalTrabajos * HOJAS_POR_TRABAJO) + (totalIntentos * HOJAS_POR_CUESTIONARIO);
+  const co2EvitadoGr = hojasEvitadas * GR_CO2_POR_HOJA;
+  const co2EvitadoKg = co2EvitadoGr / 1000;
+
+  return { totalTrabajos, totalCursos, totalIntentos, totalAdjuntosDigitales, hojasEvitadas, co2EvitadoKg };
+}
+
+function renderImpacto(){
+  const d = calcularImpacto();
+  return `
+  <div class="panel">
+    <h2>Impacto en vivo</h2>
+    <p style="margin-top:8px; color:var(--ink-soft);">Datos reales de este sistema, calculados al momento — no una proyección.</p>
+  </div>
+
+  <div class="stats" style="margin-top:4px;">
+    <div class="stat"><div class="n mono" style="font-size:40px;">${d.totalTrabajos}</div><div class="l">Trabajos de investigación gestionados</div></div>
+    <div class="stat"><div class="n mono" style="font-size:40px;">${d.totalIntentos}</div><div class="l">Cuestionarios de capacitación completados</div></div>
+    <div class="stat"><div class="n mono" style="font-size:40px;">${d.totalCursos}</div><div class="l">Capacitaciones publicadas</div></div>
+    <div class="stat"><div class="n mono" style="font-size:40px;">${d.totalAdjuntosDigitales}</div><div class="l">Documentos digitalizados</div></div>
+  </div>
+
+  <div class="panel" style="border-left:5px solid var(--moss);">
+    <div class="section-title">Papel evitado (estimado)</div>
+    <div style="display:flex; gap:32px; flex-wrap:wrap; margin-top:10px;">
+      <div>
+        <div style="font-family:'Source Serif 4',serif; font-size:40px; font-weight:600; color:var(--moss);">${d.hojasEvitadas.toLocaleString('es-AR')}</div>
+        <div style="font-size:13px; color:var(--ink-soft);">hojas de papel</div>
+      </div>
+      <div>
+        <div style="font-family:'Source Serif 4',serif; font-size:40px; font-weight:600; color:var(--moss);">${d.co2EvitadoKg.toFixed(1)}</div>
+        <div style="font-size:13px; color:var(--ink-soft);">kg de CO2 equivalente</div>
+      </div>
+    </div>
+    <p style="font-size:12px; color:var(--ink-soft); margin-top:16px; margin-bottom:0;">
+      Estimado con ${HOJAS_POR_TRABAJO} hojas administrativas evitadas por expediente y ${HOJAS_POR_CUESTIONARIO} por cuestionario completado, a ${GR_CO2_POR_HOJA} g de CO2e por hoja
+      (producción de papel + energía de impresión). No incluye la reducción de papel en la gestión de camas de UTI, calculada aparte.
+    </p>
+  </div>
+  `;
 }
 
 /* ---------------- init ---------------- */
