@@ -966,12 +966,92 @@ function renderListaAlumno(){
   const propios = state.trabajos.filter(t => !filtro || t.investigador.nombre.toLowerCase().includes(filtro));
 
   const refBox = `
-    <button class="ref-toggle" onclick="toggleRef()">Ver plazos de presentación según año de residencia</button>
-    <div class="ref-box" id="refbox">
-      <p><strong>1er año:</strong> presentar el tema del proyecto 60 días antes de finalizar el año, con nota firmada por el residente y su jefe.</p>
-      <p><strong>2º año:</strong> presentar el proyecto aprobado por CETI, CCDI y CIEIS/COEIS (si corresponde), 60 días antes de finalizar el año.</p>
-      <p><strong>3er año (y último año en residencias de 4):</strong> presentar el trabajo final finalizado y aprobado por CETI y CCDI, 60 días antes de finalizar el año.</p>
-      <p>Los plazos del proyecto y su finalización no son modificables, incluso si el tema cambia.</p>
+    <button class="ref-toggle" onclick="toggleRef()">Ver guía completa para residentes (plazos, circuito y errores frecuentes)</button>
+    <div class="ref-box" id="refbox" style="font-size:13.5px; line-height:1.55;">
+
+      <div style="margin-bottom:4px;"><strong style="color:var(--ink); font-size:15px;">Investigación durante la Residencia — Guía para Residentes</strong></div>
+      <div style="font-size:12px; margin-bottom:18px;">Mgtr. Laura Coluccini · Lic. Julián Rosonovich — CETI · Hospital San Roque, POE v5.0 (dic. 2024)</div>
+
+      <div class="section-title" style="margin-top:0;">¿Qué presentar y cuándo, según tu año?</div>
+      <div class="grid2" style="margin-bottom:14px;">
+        <div class="round" style="margin-bottom:0;">
+          <div class="round-top"><span><strong>1er año</strong></span><span>60 días antes de finalizar</span></div>
+          <div class="round-body">
+            <p>Presentar el <strong>tema del proyecto</strong>.</p>
+            <p>Nota firmada por el residente y su jefe. Trabajo individual.</p>
+            <p>Se remite a Capacitación y Docencia (elevación ministerial).</p>
+          </div>
+        </div>
+        <div class="round" style="margin-bottom:0;">
+          <div class="round-top"><span><strong>2º año</strong></span><span>60 días antes de finalizar</span></div>
+          <div class="round-body">
+            <p>Presentar el <strong>proyecto aprobado</strong>.</p>
+            <p>Aprobación de CETI + CCDI, y de CIEIS/COEIS si corresponde.</p>
+          </div>
+        </div>
+        <div class="round" style="margin-bottom:0;">
+          <div class="round-top"><span><strong>3er / 4º año</strong></span><span>60 días antes de finalizar</span></div>
+          <div class="round-body">
+            <p>Presentar el <strong>trabajo finalizado</strong>.</p>
+            <p>Aprobado por CETI y CCDI. El 4º año (residencias de 4 años) cumple lo mismo que el 3er año.</p>
+          </div>
+        </div>
+      </div>
+      <div class="warn-box">Los plazos del proyecto y su finalización <strong>no son modificables</strong>. El plazo de 60 días es la fecha de <strong>entrega exigida</strong> — no el momento recomendado para empezar a escribir.</div>
+
+      <div class="section-title">¿Cómo enviar tu escrito a CETI?</div>
+      <ol style="margin:0 0 14px; padding-left:20px;">
+        <li>Enviar el escrito por mail a <strong>sroqueinvestigacion@gmail.com</strong>, con datos del investigador, servicio y año de residencia.</li>
+        <li>CETI confirma la recepción del material.</li>
+        <li>Se asigna un número de ingreso y se envía la Planilla de Recepción.</li>
+        <li>El residente la completa, escanea y reenvía — recién ahí se asignan los evaluadores.</li>
+        <li>Evaluación en hasta 30 días. Dictamen: Aprobado / No aprobado, con hasta 3 instancias de evaluación y corrección.</li>
+      </ol>
+      <div class="warn-box">No esperar a último momento: sin la planilla completa, el escrito <strong>no ingresa ni se evalúa</strong>. Tampoco se aceptan trabajos enviados después de la fecha límite.</div>
+
+      <div class="section-title">Circuito de aprobación y aspectos éticos</div>
+      <p style="margin:0 0 10px;">Proyecto → Evaluación CETI → Aprobación → CIEIS (si corresponde) → Ejecución → Trabajo final → Firmas CETI/CCDI.</p>
+      <div class="grid2" style="margin-bottom:14px;">
+        <div>
+          <p style="margin:0 0 6px;"><strong>Director/Tutor — obligatorio</strong></p>
+          <ul style="margin:0; padding-left:20px;">
+            <li>Puede ser Jefe de Servicio, Instructor, Jefe de Residentes u otro profesional de la institución.</li>
+            <li>Supervisa metodología, redacción, avance e informe final.</li>
+            <li>No puede delegar sus funciones.</li>
+            <li>Debe estar disponible para reuniones con CETI/CCDI.</li>
+          </ul>
+        </div>
+        <div>
+          <p style="margin:0 0 6px;"><strong>Aspectos éticos</strong></p>
+          <ul style="margin:0; padding-left:20px;">
+            <li>Consentimiento informado y compromiso de confidencialidad, cuando corresponda.</li>
+            <li>Si requiere evaluación ética: primero CETI, luego CIEIS.</li>
+            <li>Datos de historias clínicas sin contacto con pacientes: cumplir la Ley 25.326 de protección de datos personales.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="warn-box">No se debe presentar el trabajo final sin aprobación previa del proyecto — es <strong>requisito indispensable</strong>.</div>
+
+      <div class="section-title">Errores frecuentes que retrasan la aprobación</div>
+      <ul style="margin:0 0 14px; padding-left:20px;">
+        <li>Presentar el trabajo final sin proyecto aprobado.</li>
+        <li>Enviar documentación incompleta.</li>
+        <li>No completar la Planilla de Recepción.</li>
+        <li>Comenzar la investigación antes de las aprobaciones requeridas.</li>
+        <li>Omitir consentimiento informado o confidencialidad cuando corresponde.</li>
+        <li>Enviar el escrito después de la fecha límite.</li>
+        <li>Presentar un proyecto sin Director/Tutor asignado.</li>
+      </ul>
+
+      <div class="section-title">La portada debe incluir</div>
+      <ul style="margin:0; padding-left:20px;">
+        <li>Institución hospitalaria</li>
+        <li>Título del trabajo</li>
+        <li>Autor/es, año de residencia y correo de contacto</li>
+        <li>Director/Tutor, servicio y Jefe o Instructor</li>
+        <li>Fecha y conflicto de interés</li>
+      </ul>
+
     </div>
   `;
 
