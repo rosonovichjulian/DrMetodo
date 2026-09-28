@@ -288,6 +288,7 @@ let state = {
   role: 'alumno',
   trabajos: [],
   capacitaciones: [],
+  residentes: [],
   loaded: false,
   loadError: false,
   filterText: '',
@@ -345,9 +346,10 @@ function nuevoTrabajo(datos){
 
 /* ---------------- storage (Supabase) ---------------- */
 async function loadData(){
-  const [resTrabajos, resCursos] = await Promise.all([
+  const [resTrabajos, resCursos, resResidentes] = await Promise.all([
     sb.from('trabajos').select('*').order('created_at', { ascending:false }),
-    sb.from('capacitaciones').select('*').order('created_at', { ascending:false })
+    sb.from('capacitaciones').select('*').order('created_at', { ascending:false }),
+    sb.from('residentes').select('*').order('created_at', { ascending:false })
   ]);
 
   if(resTrabajos.error){
@@ -375,6 +377,13 @@ async function loadData(){
       if(!c.comentarios) c.comentarios = [];
       return c;
     });
+  }
+
+  if(resResidentes.error){
+    console.error(resResidentes.error);
+    state.residentes = [];
+  } else {
+    state.residentes = resResidentes.data.map(row => row.data);
   }
 
   state.loaded = true;
@@ -409,6 +418,28 @@ async function guardarCurso(c){
     alert('No se pudo guardar la capacitación: ' + error.message);
   }
   return !error;
+}
+
+async function guardarResidente(r){
+  r.updatedAt = Date.now();
+  const { error } = await sb.from('residentes').upsert({
+    id: r.id,
+    data: r,
+    updated_at: new Date().toISOString()
+  });
+  if(error){
+    console.error(error);
+    alert('No se pudo guardar el residente: ' + error.message);
+  }
+  return !error;
+}
+
+async function eliminarResidente(id){
+  if(!confirm('¿Eliminar este residente de la lista?')) return;
+  const { error } = await sb.from('residentes').delete().eq('id', id);
+  if(error){ alert('No se pudo eliminar: ' + error.message); return; }
+  state.residentes = state.residentes.filter(x=>x.id!==id);
+  render();
 }
 
 async function eliminarCurso(id){
@@ -944,13 +975,16 @@ function render(){
       <button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>
       <button class="roletab ${state.role==='capacitaciones'?'active':''}" onclick="setRole('capacitaciones')">Capacitaciones</button>
       <button class="roletab ${state.role==='impacto'?'active':''}" onclick="setRole('impacto')">Impacto</button>
+      <button class="roletab ${state.role==='residentes'?'active':''}" onclick="setRole('residentes')">Residentes</button>
       <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}</span>
       <button class="lock-btn" onclick="cerrarSesionApp()">Cerrar sesión</button>
     </div>
   `;
 
   let body = '';
-  if(state.role === 'impacto'){
+  if(state.role === 'residentes'){
+    body = renderListaResidentes();
+  } else if(state.role === 'impacto'){
     body = renderImpacto();
   } else if(state.role === 'capacitaciones'){
     body = state.selectedCursoId ? renderDetalleCurso(state.selectedCursoId) : renderListaCapacitaciones();
@@ -1558,6 +1592,106 @@ async function eliminarComentarioCurso(cursoId, comentarioId){
   c.comentarios = c.comentarios.filter(cm=>cm.id!==comentarioId);
   await guardarCurso(c);
   render();
+}
+
+/* ---------------- residentes ---------------- */
+
+function nuevoResidente(datos){
+  return {
+    id: uid(),
+    nombre: datos.nombre,
+    servicio: datos.servicio,
+    anio: datos.anio,
+    estado: datos.estado || 'pendiente',
+    notas: datos.notas || '',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
+function abrirModalResidente(residenteId){
+  const r = residenteId ? state.residentes.find(x=>x.id===residenteId) : null;
+  document.getElementById('modalBody').innerHTML = `
+    <h2>${r ? 'Editar residente' : 'Agregar residente'}</h2>
+    <div class="field"><label>Nombre</label><input id="res_nombre" type="text" value="${esc(r?r.nombre:'')}"></div>
+    <div class="grid2">
+      <div class="field"><label>Servicio</label><input id="res_servicio" type="text" value="${esc(r?r.servicio:'')}"></div>
+      <div class="field"><label>Año de residencia</label><input id="res_anio" type="text" placeholder="Ej: 1er año" value="${esc(r?r.anio:'')}"></div>
+    </div>
+    <div class="field"><label>Estado actual</label>
+      <select id="res_estado">
+        <option value="pendiente" ${!r || r.estado==='pendiente' ? 'selected':''}>Pendiente</option>
+        <option value="completo" ${r && r.estado==='completo' ? 'selected':''}>Completo</option>
+      </select>
+    </div>
+    <div class="field"><label>Notas (opcional)</label><textarea id="res_notas">${esc(r?r.notas:'')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn" onclick="guardarResidenteDesdeForm('${r?r.id:''}')">${r?'Guardar cambios':'Agregar'}</button>
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('open');
+}
+
+async function guardarResidenteDesdeForm(residenteId){
+  const nombre = document.getElementById('res_nombre').value.trim();
+  if(!nombre){ alert('Ponele un nombre al residente.'); return; }
+  const datos = {
+    nombre,
+    servicio: document.getElementById('res_servicio').value.trim(),
+    anio: document.getElementById('res_anio').value.trim(),
+    estado: document.getElementById('res_estado').value,
+    notas: document.getElementById('res_notas').value.trim()
+  };
+  let r;
+  if(residenteId){
+    r = state.residentes.find(x=>x.id===residenteId);
+    Object.assign(r, datos);
+  } else {
+    r = nuevoResidente(datos);
+    state.residentes.unshift(r);
+  }
+  const ok = await guardarResidente(r);
+  if(!ok) return;
+  cerrarModal();
+  render();
+}
+
+function renderListaResidentes(){
+  const filtro = state.filterText.toLowerCase();
+  const lista = state.residentes.filter(r => !filtro || r.nombre.toLowerCase().includes(filtro));
+
+  const toolbar = `
+    <div class="toolbar">
+      <input type="text" placeholder="Buscar residente por nombre…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <button class="btn" onclick="conAccesoCETI(()=>abrirModalResidente())">+ Agregar residente</button>
+    </div>
+  `;
+
+  if(lista.length === 0){
+    return toolbar + `<div class="empty">Todavía no hay residentes cargados en la lista.</div>`;
+  }
+
+  const filas = lista.map(r => `
+    <div class="expediente ${r.estado === 'completo' ? 'aprobado' : 'pendiente'}" ${state.isAdmin ? `onclick="abrirModalResidente('${r.id}')"` : ''} style="${state.isAdmin ? '' : 'cursor:default;'}">
+      <div class="exp-top">
+        <div>
+          <h3>${esc(r.nombre)}</h3>
+          <div class="exp-meta">${r.anio ? esc(r.anio) : 'Año no especificado'}${r.servicio ? ' · '+esc(r.servicio) : ''}</div>
+          ${r.notas ? `<div class="exp-meta" style="margin-top:4px;">${esc(r.notas)}</div>` : ''}
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge ${r.estado === 'completo' ? 'aprobado' : 'pendiente'}">${r.estado === 'completo' ? 'Completo' : 'Pendiente'}</span>
+          ${state.isAdmin ? `<button class="btn danger small" onclick="event.stopPropagation(); eliminarResidente('${r.id}')">Eliminar</button>` : ''}
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  return `<div class="panel">
+    <h2>Residentes</h2>
+    <p style="margin-top:8px; color:var(--ink-soft);">Listado de residentes y su estado de cumplimiento actual frente al POE de la CETI.${state.isAdmin ? ' Tocá un residente para editarlo.' : ''}</p>
+  </div>` + toolbar + filas;
 }
 
 /* ---------------- init ---------------- */
