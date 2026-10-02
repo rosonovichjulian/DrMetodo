@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <style>
@@ -319,6 +320,8 @@ const ADJUNTO_CATEGORIAS = [
 ];
 
 const TAMANO_MAX_MB = 20; // Supabase free tier permite hasta 50 MB por archivo; dejamos margen
+const UMBRAL_APROBACION = 0.6; // 60% de respuestas correctas (ej: 6 de 10) para aprobar el cuestionario
+function esAprobado(puntaje, total){ return total > 0 && (puntaje/total) >= UMBRAL_APROBACION; }
 
 function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 function today(){ return new Date().toISOString().slice(0,10); }
@@ -1483,7 +1486,7 @@ function renderDetalleCurso(id){
     const filas = [...c.resultados].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
     html += `<div class="panel">
       <div class="section-title">Resultados registrados</div>
-      ${filas.map(r => `<div class="resultado-row"><span>${esc(r.nombre)} — ${fmtDate(r.fecha)}</span><span>${r.puntaje}/${r.total}</span></div>`).join('')}
+      ${filas.map(r => `<div class="resultado-row"><span>${esc(r.nombre)} — ${fmtDate(r.fecha)}</span><span>${r.puntaje}/${r.total} · <span class="badge ${esAprobado(r.puntaje,r.total)?'aprobado':'no_aprobado'}" style="font-size:10.5px;">${esAprobado(r.puntaje,r.total)?'Aprobado':'No aprobado'}</span></span></div>`).join('')}
     </div>`;
   }
 
@@ -1502,6 +1505,7 @@ function renderCuestionario(c){
     return `<div class="panel">
       <div class="section-title">Cuestionario</div>
       <div class="quiz-score">${r.puntaje} / ${r.total} correctas</div>
+      <div class="badge ${esAprobado(r.puntaje,r.total)?'aprobado':'no_aprobado'}" style="margin-bottom:14px;">${esAprobado(r.puntaje,r.total) ? `Aprobado (mínimo ${Math.round(UMBRAL_APROBACION*r.total)}/${r.total})` : `No aprobado — necesitás al menos ${Math.round(UMBRAL_APROBACION*r.total)} de ${r.total} correctas`}</div>
       ${c.preguntas.map((p,i)=>{
         const marcada = r.respuestas[i];
         const ok = marcada === p.correctaIndex;
@@ -1510,7 +1514,10 @@ function renderCuestionario(c){
           ${p.opciones.map((op,j)=>`<div style="font-size:13.5px; ${j===p.correctaIndex?'font-weight:600;':''} ${j===marcada && !ok ? 'text-decoration:line-through;':''}">${j===p.correctaIndex?'✓ ':''}${esc(op)}</div>`).join('')}
         </div>`;
       }).join('')}
-      <button class="btn secondary small" onclick="state.quizResultado=null; render();">Volver a intentar</button>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
+        ${esAprobado(r.puntaje,r.total) ? `<button class="btn small" onclick="descargarCertificado('${c.id}')">Descargar certificado</button>` : ''}
+        <button class="btn secondary small" onclick="state.quizResultado=null; render();">Volver a intentar</button>
+      </div>
     </div>`;
   }
 
@@ -1547,8 +1554,87 @@ async function enviarCuestionario(cursoId){
   saveNombre(nombre);
   c.resultados.push({ nombre, puntaje, total: c.preguntas.length, fecha: today() });
   await guardarCurso(c);
-  state.quizResultado = { cursoId, puntaje, total: c.preguntas.length, respuestas };
+  state.quizResultado = { cursoId, puntaje, total: c.preguntas.length, respuestas, nombre, fecha: today() };
   render();
+}
+
+function nombreComiteCompleto(c){
+  const comites = c.comites || ['ceti'];
+  const nombres = {
+    ceti: 'Comisión Evaluadora de Trabajos de Investigación (CETI)',
+    calidad: 'Comité de Calidad y Seguridad del Paciente'
+  };
+  return comites.map(co => nombres[co] || co).join(' · ');
+}
+
+function descargarCertificado(cursoId){
+  const c = state.capacitaciones.find(x=>x.id===cursoId);
+  const r = state.quizResultado;
+  if(!c || !r || r.cursoId !== cursoId){ alert('No se encontró el resultado para generar el certificado.'); return; }
+  if(!esAprobado(r.puntaje, r.total)){ alert('El certificado solo se emite si se aprueba el cuestionario (mínimo 60%).'); return; }
+  if(!window.jspdf){ alert('No se pudo cargar el generador de PDF. Recargá la página y probá de nuevo.'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+  const W = 297, H = 210;
+  const accent = [108,99,255];
+  const ink = [34,32,27];
+  const soft = [110,110,110];
+
+  doc.setDrawColor(...accent);
+  doc.setLineWidth(1.1);
+  doc.rect(10,10,W-20,H-20);
+  doc.setLineWidth(0.25);
+  doc.rect(14,14,W-28,H-28);
+
+  doc.setFont('times','bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...accent);
+  doc.text('EPINOVA', W/2, 32, { align:'center' });
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...soft);
+  doc.text(nombreComiteCompleto(c) + ' — Nuevo Hospital San Roque', W/2, 39, { align:'center' });
+
+  doc.setFont('times','bold');
+  doc.setFontSize(30);
+  doc.setTextColor(...ink);
+  doc.text('Certificado de Finalización', W/2, 68, { align:'center' });
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(13);
+  doc.setTextColor(...soft);
+  doc.text('Se certifica que', W/2, 92, { align:'center' });
+
+  doc.setFont('times','bolditalic');
+  doc.setFontSize(27);
+  doc.setTextColor(...ink);
+  doc.text(r.nombre, W/2, 107, { align:'center' });
+
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(13);
+  doc.setTextColor(...soft);
+  doc.text('completó satisfactoriamente la capacitación', W/2, 120, { align:'center' });
+
+  doc.setFont('times','bold');
+  doc.setFontSize(17);
+  doc.setTextColor(...ink);
+  const tituloLineas = doc.splitTextToSize(c.titulo, W-90);
+  doc.text(tituloLineas, W/2, 133, { align:'center' });
+
+  const yPuntaje = 133 + (tituloLineas.length-1)*7.5 + 13;
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(12);
+  doc.setTextColor(...soft);
+  doc.text(`Puntaje obtenido: ${r.puntaje} / ${r.total}`, W/2, yPuntaje, { align:'center' });
+
+  doc.setFontSize(10);
+  doc.setTextColor(150,150,150);
+  doc.text(`${fmtDate(r.fecha)}`, W/2, H-24, { align:'center' });
+
+  const nombreArchivo = `Certificado - ${c.titulo} - ${r.nombre}.pdf`.replace(/[\\/:*?"<>|]/g,'');
+  doc.save(nombreArchivo);
 }
 
 /* ---------------- impacto ---------------- */
