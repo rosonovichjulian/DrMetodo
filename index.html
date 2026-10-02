@@ -283,6 +283,7 @@ const BUCKET = 'adjuntos';
 let state = {
   session: null,
   isAdmin: false,
+  isCalidad: false,
   authChecked: false,
   authMode: 'login',
   role: 'alumno',
@@ -375,6 +376,7 @@ async function loadData(){
       if(!c.preguntas) c.preguntas = [];
       if(!c.resultados) c.resultados = [];
       if(!c.comentarios) c.comentarios = [];
+      if(!c.comite) c.comite = 'ceti';
       return c;
     });
   }
@@ -643,16 +645,36 @@ async function eliminarTrabajo(id){
   render();
 }
 
+// Vistas que no existen para una cuenta que SOLO pertenece al Comité de
+// Calidad (sin ser también CETI): para esas cuentas, Capacitaciones es la
+// única sección — como si fuera una plataforma aparte.
+const VISTAS_SOLO_CETI = ['alumno', 'ceti', 'impacto', 'residentes'];
+
 function setRole(r){
   if(r === 'ceti' && !state.isAdmin){ alert('Tu cuenta no tiene permisos de CETI.'); return; }
+  if(VISTAS_SOLO_CETI.includes(r) && state.isCalidad && !state.isAdmin){ return; } // cuenta solo-Calidad: ignorar
   state.role = r; state.selectedId = null; state.selectedCursoId = null; render();
 }
 
-// Acciones reservadas a CETI (crear/editar/eliminar capacitaciones desde
-// cualquier parte de la app). Ahora se basa en la cuenta real, no en una clave.
+// Acciones reservadas a CETI (Vista CETI, Residentes, Impacto). Se basa en
+// la cuenta real (tabla roles, comité 'ceti'), no en una clave.
 function conAccesoCETI(fn){
   if(state.isAdmin){ fn(); return; }
   alert('Esta acción requiere una cuenta con permisos de CETI.');
+}
+
+// Acciones de gestión de Capacitaciones: alcanza con pertenecer a CUALQUIER
+// comité (CETI o Calidad) — cada uno administra las suyas.
+function conAccesoComite(fn){
+  if(state.isAdmin || state.isCalidad){ fn(); return; }
+  alert('Esta acción requiere pertenecer a un comité (CETI o Comité de Calidad).');
+}
+
+// Puede editar/eliminar/moderar una capacitación puntual si pertenece al
+// comité dueño de esa capacitación.
+function puedeAdministrarCurso(c){
+  const comite = c.comite || 'ceti';
+  return (comite === 'ceti' && state.isAdmin) || (comite === 'calidad' && state.isCalidad);
 }
 
 /* ---------------- autenticación ---------------- */
@@ -665,22 +687,30 @@ async function initAuth(){
   sb.auth.onAuthStateChange(async (_event, session)=>{
     state.session = session;
     if(session){ await afterLogin(); }
-    else{ state.isAdmin = false; state.loaded = false; render(); }
+    else{ state.isAdmin = false; state.isCalidad = false; state.loaded = false; render(); }
   });
 }
 
 async function afterLogin(){
-  await checkIsAdmin();
+  await checkRoles();
+  // Una cuenta exclusiva de Calidad arranca directo en Capacitaciones:
+  // para ella, es la única sección que existe.
+  if(state.isCalidad && !state.isAdmin){ state.role = 'capacitaciones'; }
   await loadData();
 }
 
-async function checkIsAdmin(){
-  if(!state.session){ state.isAdmin = false; return; }
+async function checkRoles(){
+  state.isAdmin = false;
+  state.isCalidad = false;
+  if(!state.session) return;
   try{
     const email = state.session.user.email;
-    const { data } = await sb.from('admins').select('email').eq('email', email).maybeSingle();
-    state.isAdmin = !!data;
-  }catch(e){ state.isAdmin = false; }
+    const { data } = await sb.from('roles').select('comite').eq('email', email);
+    if(data){
+      state.isAdmin = data.some(r => r.comite === 'ceti');
+      state.isCalidad = data.some(r => r.comite === 'calidad');
+    }
+  }catch(e){ /* sin roles */ }
 }
 
 async function iniciarSesion(){
@@ -971,12 +1001,12 @@ function render(){
       </div>
     </header>
     <div class="roletabs">
-      <button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>
-      <button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>
+      ${(!state.isCalidad || state.isAdmin) ? `<button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>` : ''}
+      ${state.isAdmin ? `<button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>` : ''}
       <button class="roletab ${state.role==='capacitaciones'?'active':''}" onclick="setRole('capacitaciones')">Capacitaciones</button>
-      <button class="roletab ${state.role==='impacto'?'active':''}" onclick="setRole('impacto')">Impacto</button>
-      <button class="roletab ${state.role==='residentes'?'active':''}" onclick="setRole('residentes')">Residentes</button>
-      <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}</span>
+      ${state.isAdmin ? `<button class="roletab ${state.role==='impacto'?'active':''}" onclick="setRole('impacto')">Impacto</button>` : ''}
+      ${state.isAdmin ? `<button class="roletab ${state.role==='residentes'?'active':''}" onclick="setRole('residentes')">Residentes</button>` : ''}
+      <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}${state.isCalidad?' · Calidad':''}</span>
       <button class="lock-btn" onclick="cerrarSesionApp()">Cerrar sesión</button>
     </div>
   `;
@@ -1238,6 +1268,7 @@ function nuevoCurso(datos){
     youtubeUrl: datos.youtubeUrl,
     bibliografia: datos.bibliografia,
     preguntas: datos.preguntas,
+    comite: datos.comite || 'ceti',
     resultados: [],
     comentarios: [],
     createdAt: Date.now(),
@@ -1311,8 +1342,18 @@ function preguntasATexto(lista){
 
 function abrirModalCurso(cursoId){
   const c = cursoId ? state.capacitaciones.find(x=>x.id===cursoId) : null;
+  const opcionesComite = [];
+  if(state.isAdmin) opcionesComite.push('ceti');
+  if(state.isCalidad) opcionesComite.push('calidad');
+  const comiteActual = c ? (c.comite || 'ceti') : opcionesComite[0];
+  const nombreComite = { ceti: 'CETI', calidad: 'Comité de Calidad y Seguridad del Paciente' };
+
   document.getElementById('modalBody').innerHTML = `
     <h2>${c ? 'Editar capacitación' : 'Nueva capacitación'}</h2>
+    ${opcionesComite.length > 1 ? `
+    <div class="field"><label>Comité</label>
+      <select id="c_comite">${opcionesComite.map(o=>`<option value="${o}" ${o===comiteActual?'selected':''}>${nombreComite[o]}</option>`).join('')}</select>
+    </div>` : `<input type="hidden" id="c_comite" value="${comiteActual}">`}
     <div class="field"><label>Título del curso</label><input id="c_titulo" type="text" value="${esc(c?c.titulo:'')}"></div>
     <div class="field"><label>Descripción</label><textarea id="c_descripcion">${esc(c?c.descripcion:'')}</textarea></div>
     <div class="field"><label>Link de YouTube</label><input id="c_youtube" type="text" placeholder="https://www.youtube.com/watch?v=..." value="${esc(c?c.youtubeUrl:'')}"></div>
@@ -1343,7 +1384,8 @@ async function guardarCursoDesdeForm(cursoId){
     descripcion: document.getElementById('c_descripcion').value.trim(),
     youtubeUrl: document.getElementById('c_youtube').value.trim(),
     bibliografia: parseBibliografia(document.getElementById('c_biblio').value),
-    preguntas: parsePreguntas(document.getElementById('c_preguntas').value)
+    preguntas: parsePreguntas(document.getElementById('c_preguntas').value),
+    comite: document.getElementById('c_comite').value
   };
   let c;
   if(cursoId){
@@ -1370,7 +1412,7 @@ function renderListaCapacitaciones(){
   const toolbar = `
     <div class="toolbar">
       <input type="text" placeholder="Buscar capacitación…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
-      <button class="btn" onclick="conAccesoCETI(()=>abrirModalCurso())">+ Nueva capacitación</button>
+      <button class="btn" onclick="conAccesoComite(()=>abrirModalCurso())">+ Nueva capacitación</button>
     </div>
   `;
 
@@ -1383,6 +1425,7 @@ function renderListaCapacitaciones(){
       <h3>${esc(c.titulo)}</h3>
       ${c.descripcion ? `<p>${esc(c.descripcion.slice(0,160))}${c.descripcion.length>160?'…':''}</p>` : ''}
       <div class="curso-meta">
+        <span class="badge ${c.comite==='calidad'?'pendiente':'neutral'}">${c.comite==='calidad'?'Comité de Calidad':'CETI'}</span>
         ${c.youtubeUrl ? `<span class="badge neutral">Video</span>` : ''}
         ${c.preguntas.length ? `<span class="badge neutral">${c.preguntas.length} preguntas</span>` : ''}
         ${c.bibliografia.length ? `<span class="badge neutral">${c.bibliografia.length} referencias</span>` : ''}
@@ -1397,15 +1440,18 @@ function renderDetalleCurso(id){
   if(!c){ state.selectedCursoId = null; return renderListaCapacitaciones(); }
   const embed = youtubeEmbedUrl(c.youtubeUrl);
 
+  const puedeAdmin = puedeAdministrarCurso(c);
+
   let html = `<div style="display:flex; justify-content:space-between; align-items:center;">
     <button class="back" onclick="volverCapacitaciones()">← Volver a capacitaciones</button>
-    ${state.isAdmin ? `<div style="display:flex; gap:8px;">
+    ${puedeAdmin ? `<div style="display:flex; gap:8px;">
       <button class="btn secondary small" onclick="abrirModalCurso('${c.id}')">Editar</button>
       <button class="btn danger small" onclick="eliminarCurso('${c.id}')">Eliminar</button>
     </div>` : ''}
   </div>`;
 
   html += `<div class="panel">
+    <div class="curso-meta" style="margin-bottom:10px;"><span class="badge ${c.comite==='calidad'?'pendiente':'neutral'}">${c.comite==='calidad'?'Comité de Calidad':'CETI'}</span></div>
     <h2>${esc(c.titulo)}</h2>
     ${c.descripcion ? `<p style="margin-top:8px; color:var(--ink-soft);">${esc(c.descripcion)}</p>` : ''}
     ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen title="${esc(c.titulo)}"></iframe></div>` :
@@ -1421,7 +1467,7 @@ function renderDetalleCurso(id){
 
   html += renderCuestionario(c);
 
-  if(state.isAdmin && c.resultados.length){
+  if(puedeAdmin && c.resultados.length){
     const filas = [...c.resultados].sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
     html += `<div class="panel">
       <div class="section-title">Resultados registrados</div>
@@ -1553,12 +1599,13 @@ function renderImpacto(){
 /* ---------------- comentarios (por capacitación) ---------------- */
 
 function renderComentariosCurso(c){
+  const puedeAdmin = puedeAdministrarCurso(c);
   const lista = [...c.comentarios].sort((a,b)=> (a.fecha||'').localeCompare(b.fecha||''));
   const items = lista.length ? lista.map(cm => `
     <div class="comentario">
       <div class="comentario-top">
         <span class="comentario-nombre">${esc(cm.nombre)}</span>
-        <span class="comentario-fecha">${fmtDate(cm.fecha)}${state.isAdmin ? ` · <a onclick="eliminarComentarioCurso('${c.id}','${cm.id}')" style="cursor:pointer; color:var(--brick);">eliminar</a>` : ''}</span>
+        <span class="comentario-fecha">${fmtDate(cm.fecha)}${puedeAdmin ? ` · <a onclick="eliminarComentarioCurso('${c.id}','${cm.id}')" style="cursor:pointer; color:var(--brick);">eliminar</a>` : ''}</span>
       </div>
       <div class="comentario-texto">${esc(cm.texto)}</div>
     </div>
