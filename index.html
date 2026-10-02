@@ -376,7 +376,7 @@ async function loadData(){
       if(!c.preguntas) c.preguntas = [];
       if(!c.resultados) c.resultados = [];
       if(!c.comentarios) c.comentarios = [];
-      if(!c.comite) c.comite = 'ceti';
+      if(!c.comites){ c.comites = c.comite ? [c.comite] : ['ceti']; }
       return c;
     });
   }
@@ -673,8 +673,15 @@ function conAccesoComite(fn){
 // Puede editar/eliminar/moderar una capacitación puntual si pertenece al
 // comité dueño de esa capacitación.
 function puedeAdministrarCurso(c){
-  const comite = c.comite || 'ceti';
-  return (comite === 'ceti' && state.isAdmin) || (comite === 'calidad' && state.isCalidad);
+  const comites = c.comites || ['ceti'];
+  return (comites.includes('ceti') && state.isAdmin) || (comites.includes('calidad') && state.isCalidad);
+}
+
+const NOMBRE_COMITE = { ceti: 'CETI', calidad: 'Comité de Calidad' };
+const TONO_COMITE = { ceti: 'neutral', calidad: 'pendiente' };
+function badgesComites(c){
+  const comites = c.comites || ['ceti'];
+  return comites.map(co => `<span class="badge ${TONO_COMITE[co]||'neutral'}">${NOMBRE_COMITE[co]||co}</span>`).join(' ');
 }
 
 /* ---------------- autenticación ---------------- */
@@ -1268,7 +1275,7 @@ function nuevoCurso(datos){
     youtubeUrl: datos.youtubeUrl,
     bibliografia: datos.bibliografia,
     preguntas: datos.preguntas,
-    comite: datos.comite || 'ceti',
+    comites: datos.comites && datos.comites.length ? datos.comites : ['ceti'],
     resultados: [],
     comentarios: [],
     createdAt: Date.now(),
@@ -1345,15 +1352,15 @@ function abrirModalCurso(cursoId){
   const opcionesComite = [];
   if(state.isAdmin) opcionesComite.push('ceti');
   if(state.isCalidad) opcionesComite.push('calidad');
-  const comiteActual = c ? (c.comite || 'ceti') : opcionesComite[0];
+  const comitesActuales = c ? (c.comites || ['ceti']) : [];
   const nombreComite = { ceti: 'CETI', calidad: 'Comité de Calidad y Seguridad del Paciente' };
 
   document.getElementById('modalBody').innerHTML = `
     <h2>${c ? 'Editar capacitación' : 'Nueva capacitación'}</h2>
     ${opcionesComite.length > 1 ? `
-    <div class="field"><label>Comité</label>
-      <select id="c_comite">${opcionesComite.map(o=>`<option value="${o}" ${o===comiteActual?'selected':''}>${nombreComite[o]}</option>`).join('')}</select>
-    </div>` : `<input type="hidden" id="c_comite" value="${comiteActual}">`}
+    <div class="field"><label>¿A qué comité(s) pertenece? (marcá uno o los dos)</label>
+      ${opcionesComite.map(o => `<label style="display:block; font-size:13.5px; padding:5px 0;"><input type="checkbox" class="c_comite_check" value="${o}" ${comitesActuales.includes(o)?'checked':''}> ${nombreComite[o]}</label>`).join('')}
+    </div>` : `<input type="hidden" class="c_comite_check" value="${opcionesComite[0]}" data-fijo="1">`}
     <div class="field"><label>Título del curso</label><input id="c_titulo" type="text" value="${esc(c?c.titulo:'')}"></div>
     <div class="field"><label>Descripción</label><textarea id="c_descripcion">${esc(c?c.descripcion:'')}</textarea></div>
     <div class="field"><label>Link de YouTube</label><input id="c_youtube" type="text" placeholder="https://www.youtube.com/watch?v=..." value="${esc(c?c.youtubeUrl:'')}"></div>
@@ -1379,13 +1386,18 @@ R: A">${esc(preguntasATexto(c?c.preguntas:[]))}</textarea>
 async function guardarCursoDesdeForm(cursoId){
   const titulo = document.getElementById('c_titulo').value.trim();
   if(!titulo){ alert('Ponele un título al curso.'); return; }
+  const checks = Array.from(document.querySelectorAll('.c_comite_check'));
+  const comites = checks
+    .filter(el => el.dataset.fijo === '1' || el.checked)
+    .map(el => el.value);
+  if(comites.length === 0){ alert('Elegí al menos un comité para esta capacitación.'); return; }
   const datos = {
     titulo,
     descripcion: document.getElementById('c_descripcion').value.trim(),
     youtubeUrl: document.getElementById('c_youtube').value.trim(),
     bibliografia: parseBibliografia(document.getElementById('c_biblio').value),
     preguntas: parsePreguntas(document.getElementById('c_preguntas').value),
-    comite: document.getElementById('c_comite').value
+    comites
   };
   let c;
   if(cursoId){
@@ -1425,7 +1437,7 @@ function renderListaCapacitaciones(){
       <h3>${esc(c.titulo)}</h3>
       ${c.descripcion ? `<p>${esc(c.descripcion.slice(0,160))}${c.descripcion.length>160?'…':''}</p>` : ''}
       <div class="curso-meta">
-        <span class="badge ${c.comite==='calidad'?'pendiente':'neutral'}">${c.comite==='calidad'?'Comité de Calidad':'CETI'}</span>
+        ${badgesComites(c)}
         ${c.youtubeUrl ? `<span class="badge neutral">Video</span>` : ''}
         ${c.preguntas.length ? `<span class="badge neutral">${c.preguntas.length} preguntas</span>` : ''}
         ${c.bibliografia.length ? `<span class="badge neutral">${c.bibliografia.length} referencias</span>` : ''}
@@ -1451,7 +1463,7 @@ function renderDetalleCurso(id){
   </div>`;
 
   html += `<div class="panel">
-    <div class="curso-meta" style="margin-bottom:10px;"><span class="badge ${c.comite==='calidad'?'pendiente':'neutral'}">${c.comite==='calidad'?'Comité de Calidad':'CETI'}</span></div>
+    <div class="curso-meta" style="margin-bottom:10px;">${badgesComites(c)}</div>
     <h2>${esc(c.titulo)}</h2>
     ${c.descripcion ? `<p style="margin-top:8px; color:var(--ink-soft);">${esc(c.descripcion)}</p>` : ''}
     ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen title="${esc(c.titulo)}"></iframe></div>` :
