@@ -245,6 +245,26 @@
   .auth-error{ background:#3A1518; color:#F87171; border-radius:8px; padding:9px 12px; font-size:13px; margin-bottom:14px; }
   .auth-footnote{ text-align:center; margin-top:16px; font-size:12.5px; color:#6B7A8C; position:relative; z-index:1; }
 
+  /* ---- Selector de módulos (pantalla de entrada) ---- */
+  .lanz-shell{ position:relative; z-index:1; width:100%; max-width:860px; display:flex; border-radius:16px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.4); min-height:420px; }
+  .lanz-brand{ flex:1 1 38%; background:#fff; display:flex; align-items:center; justify-content:center; padding:32px; }
+  .lanz-brand img{ max-width:200px; width:100%; height:auto; }
+  .lanz-panel{ flex:1 1 62%; background:#0F1B29; padding:36px 40px; display:flex; flex-direction:column; justify-content:center; }
+  .lanz-eyebrow{ font-size:11px; letter-spacing:.1em; color:#5EEAD4; text-transform:uppercase; font-weight:600; margin-bottom:6px; }
+  .lanz-panel h2{ font-size:24px; color:#F3F4F6; margin:0 0 22px; }
+  .lanz-row{ display:flex; align-items:center; gap:14px; background:#141F2E; border:1px solid #223042; border-radius:10px; padding:14px 16px; margin-bottom:12px; }
+  .lanz-row-icon{ width:38px; height:38px; border-radius:8px; background:#1B2A3D; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:#5EEAD4; }
+  .lanz-row-titulo{ flex:1; font-size:15px; font-weight:600; color:#F3F4F6; }
+  .lanz-btn{ display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border:none; border-radius:8px; color:#fff; font-weight:600; font-size:13.5px; cursor:pointer; background:linear-gradient(90deg,#14B8A6,#2563EB); }
+  .lanz-btn:hover{ filter:brightness(1.08); }
+  .lanz-disclaimer{ position:relative; z-index:1; max-width:860px; width:100%; margin-top:18px; background:#2E2208; border:1px solid #B98536; color:#F1E3C8; border-radius:10px; padding:13px 18px; font-size:13px; display:flex; gap:10px; align-items:flex-start; }
+
+  @media (max-width:640px){
+    .lanz-shell{ flex-direction:column; max-width:380px; }
+    .lanz-brand{ padding:26px; }
+    .lanz-brand img{ max-width:150px; }
+  }
+
   @media (max-width:640px){
     .auth-shell{ flex-direction:column; max-width:380px; }
     .auth-brand{ padding:28px; }
@@ -287,6 +307,7 @@ let state = {
   isCalidad: false,
   authChecked: false,
   authMode: 'login',
+  moduloElegido: null, // null | 'capacitaciones' | 'investigacion' — elegido en el selector de entrada
   role: 'alumno',
   trabajos: [],
   capacitaciones: [],
@@ -706,6 +727,8 @@ async function afterLogin(){
   // Una cuenta exclusiva de Calidad arranca directo en Capacitaciones:
   // para ella, es la única sección que existe.
   if(state.isCalidad && !state.isAdmin){ state.role = 'capacitaciones'; }
+  else if(state.moduloElegido === 'capacitaciones'){ state.role = 'capacitaciones'; }
+  else if(state.moduloElegido === 'investigacion'){ state.role = 'alumno'; }
   await loadData();
 }
 
@@ -987,9 +1010,64 @@ function abrirDetalle(id){ state.selectedId = id; render(); }
 function volver(){ state.selectedId = null; render(); }
 function toggleRef(){ document.getElementById('refbox').classList.toggle('open'); }
 
+function elegirModulo(m){
+  if(m === 'epidemiologia'){
+    window.location.href = 'https://appgestionhospitalaria.vercel.app/';
+    return;
+  }
+  state.moduloElegido = m;
+  render();
+}
+
+function volverAlSelector(){
+  state.moduloElegido = null;
+  state.role = 'alumno';
+  state.selectedId = null;
+  state.selectedCursoId = null;
+  render();
+}
+
+function renderSelectorModulos(){
+  const iconPulso = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,13 7,13 9,7 13,18 15,13 22,13"/></svg>`;
+  const iconPlay = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10,9 16,12 10,15" fill="currentColor" stroke="none"/></svg>`;
+  const iconFlask = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v6.5L4.5 18a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 8.5V2"/><path d="M7 15h10"/></svg>`;
+  const iconFlecha = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>`;
+
+  return `
+  <div class="auth-screen">
+    <div class="lanz-shell">
+      <div class="lanz-brand"><img src="data:image/webp;base64,${EPINOVA_LOGO_B64}" alt="Epinova"></div>
+      <div class="lanz-panel">
+        <div class="lanz-eyebrow">Plataforma hospitalaria</div>
+        <h2>Seleccioná un módulo</h2>
+
+        <div class="lanz-row">
+          <div class="lanz-row-icon">${iconPulso}</div>
+          <div class="lanz-row-titulo">Gestión sanitaria y epidemiológica</div>
+          <button class="lanz-btn" onclick="elegirModulo('epidemiologia')">${iconFlecha} Ingresar</button>
+        </div>
+
+        <div class="lanz-row">
+          <div class="lanz-row-icon">${iconPlay}</div>
+          <div class="lanz-row-titulo">Capacitaciones</div>
+          <button class="lanz-btn" onclick="elegirModulo('capacitaciones')">${iconFlecha} Ingresar</button>
+        </div>
+
+        <div class="lanz-row">
+          <div class="lanz-row-icon">${iconFlask}</div>
+          <div class="lanz-row-titulo">Investigación en ciencias médicas</div>
+          <button class="lanz-btn" onclick="elegirModulo('investigacion')">${iconFlecha} Ingresar</button>
+        </div>
+      </div>
+    </div>
+    <div class="lanz-disclaimer">⚠️ Versión piloto en validación en el Nuevo Hospital San Roque. Datos exclusivos del ámbito del piloto.</div>
+  </div>`;
+}
+
 /* ---------------- render ---------------- */
 function render(){
   const app = document.getElementById('app');
+  if(!state.moduloElegido){ app.innerHTML = renderSelectorModulos(); return; }
   if(!state.authChecked){ app.innerHTML = 'Cargando…'; return; }
   if(!state.session){ app.innerHTML = renderAuthScreen(); return; }
   if(!state.loaded){ app.innerHTML = 'Cargando…'; return; }
@@ -1017,6 +1095,7 @@ function render(){
       ${state.isAdmin ? `<button class="roletab ${state.role==='impacto'?'active':''}" onclick="setRole('impacto')">Impacto</button>` : ''}
       ${state.isAdmin ? `<button class="roletab ${state.role==='residentes'?'active':''}" onclick="setRole('residentes')">Residentes</button>` : ''}
       <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}${state.isCalidad?' · Calidad':''}</span>
+      <button class="lock-btn" onclick="volverAlSelector()">← Cambiar de módulo</button>
       <button class="lock-btn" onclick="cerrarSesionApp()">Cerrar sesión</button>
     </div>
   `;
