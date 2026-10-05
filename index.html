@@ -307,6 +307,7 @@ let state = {
   isCalidad: false,
   authChecked: false,
   authMode: 'login',
+  filterBiblio: '',
   moduloElegido: null, // null | 'capacitaciones' | 'investigacion' — elegido en el selector de entrada
   role: 'alumno',
   trabajos: [],
@@ -364,6 +365,8 @@ function nuevoTrabajo(datos){
     trabajoFinal: { rounds: [] },
     entrega: { copias:false, firmaCETI:false, firmaCCDI:false, fecha:'' },
     adjuntos: [],
+    autorizaDifusion: false,
+    fechaAutorizacion: '',
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -672,7 +675,7 @@ async function eliminarTrabajo(id){
 // Vistas que no existen para una cuenta que SOLO pertenece al Comité de
 // Calidad (sin ser también CETI): para esas cuentas, Capacitaciones es la
 // única sección — como si fuera una plataforma aparte.
-const VISTAS_SOLO_CETI = ['alumno', 'ceti', 'impacto', 'residentes'];
+const VISTAS_SOLO_CETI = ['alumno', 'ceti', 'impacto', 'residentes', 'biblioteca'];
 
 function setRole(r){
   if(r === 'ceti' && !state.isAdmin){ alert('Tu cuenta no tiene permisos de CETI.'); return; }
@@ -1067,6 +1070,9 @@ function renderSelectorModulos(){
 /* ---------------- render ---------------- */
 function render(){
   const app = document.getElementById('app');
+  const ae = document.activeElement;
+  const focusKey = ae && ae.dataset ? ae.dataset.focuskey : null;
+  const caret = (focusKey && typeof ae.selectionStart === 'number') ? ae.selectionStart : null;
   if(!state.moduloElegido){ app.innerHTML = renderSelectorModulos(); return; }
   if(!state.authChecked){ app.innerHTML = 'Cargando…'; return; }
   if(!state.session){ app.innerHTML = renderAuthScreen(); return; }
@@ -1092,6 +1098,7 @@ function render(){
       ${(!state.isCalidad || state.isAdmin) ? `<button class="roletab ${state.role==='alumno'?'active':''}" onclick="setRole('alumno')">Vista Alumno</button>` : ''}
       ${state.isAdmin ? `<button class="roletab ${state.role==='ceti'?'active':''}" onclick="setRole('ceti')">Vista CETI</button>` : ''}
       <button class="roletab ${state.role==='capacitaciones'?'active':''}" onclick="setRole('capacitaciones')">Capacitaciones</button>
+      ${(!state.isCalidad || state.isAdmin) ? `<button class="roletab ${state.role==='biblioteca'?'active':''}" onclick="setRole('biblioteca')">Biblioteca</button>` : ''}
       ${state.isAdmin ? `<button class="roletab ${state.role==='impacto'?'active':''}" onclick="setRole('impacto')">Impacto</button>` : ''}
       ${state.isAdmin ? `<button class="roletab ${state.role==='residentes'?'active':''}" onclick="setRole('residentes')">Residentes</button>` : ''}
       <span style="margin-left:auto; align-self:center; font-size:12.5px; color:var(--ink-soft);">${esc(state.session.user.email)}${state.isAdmin?' · CETI':''}${state.isCalidad?' · Calidad':''}</span>
@@ -1101,7 +1108,9 @@ function render(){
   `;
 
   let body = '';
-  if(state.role === 'residentes'){
+  if(state.role === 'biblioteca'){
+    body = renderBiblioteca();
+  } else if(state.role === 'residentes'){
     body = renderListaResidentes();
   } else if(state.role === 'impacto'){
     body = renderImpacto();
@@ -1120,6 +1129,14 @@ function render(){
       <span>Referencia: POE CETI, versión 5.0 (dic. 2024) — hasta 3 rondas de evaluación por escrito, 30 días máximo por ronda.</span>
     </footer>
   `;
+
+  if(focusKey){
+    const el = app.querySelector('[data-focuskey="' + focusKey + '"]');
+    if(el){
+      el.focus();
+      if(caret !== null){ try{ el.setSelectionRange(caret, caret); }catch(e){} }
+    }
+  }
 }
 
 function renderListaAlumno(){
@@ -1138,7 +1155,7 @@ function renderListaAlumno(){
 
   const toolbar = `
     <div class="toolbar">
-      <input type="text" placeholder="Buscar por tu nombre…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <input type="text" placeholder="Buscar por tu nombre…" value="${esc(state.filterText)}" data-focuskey="buscar" oninput="state.filterText=this.value; render();">
       <button class="btn" onclick="abrirModalNuevo()">+ Registrar título de trabajo</button>
     </div>
   `;
@@ -1177,7 +1194,7 @@ function renderListaCETI(){
 
   const toolbar = `
     <div class="toolbar">
-      <input type="text" placeholder="Buscar por título o investigador…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <input type="text" placeholder="Buscar por título o investigador…" value="${esc(state.filterText)}" data-focuskey="buscar" oninput="state.filterText=this.value; render();">
       <select onchange="state.filterEstado=this.value; render();">
         <option value="" ${state.filterEstado===''?'selected':''}>Todos los estados</option>
         <option value="pendiente" ${state.filterEstado==='pendiente'?'selected':''}>En curso</option>
@@ -1301,6 +1318,16 @@ function renderDetalle(id){
       <label style="font-size:13.5px;"><input type="checkbox" ${t.entrega.firmaCCDI?'checked':''} ${isCETI?'':'disabled'} onchange="actualizarCampo('${t.id}','entrega.firmaCCDI', this.checked)"> Firmado por CCDI</label>
       <div class="field" style="margin:0;"><label>Fecha de firma</label><input type="date" value="${esc(t.entrega.fecha)}" ${isCETI?'':'disabled'} onchange="actualizarCampo('${t.id}','entrega.fecha', this.value)"></div>
     </div>`}
+  </div>`;
+
+  // Difusión en la Biblioteca
+  html += `<div class="panel">
+    <div class="section-title">Difusión en la Biblioteca</div>
+    ${!efAprobado ? `<p style="font-size:13.5px; color:var(--ink-soft);">Se habilita cuando el trabajo final esté aprobado por la Comisión.</p>` : `
+    <p style="font-size:13.5px; color:var(--ink-soft); margin-bottom:10px;">La Biblioteca muestra a los usuarios registrados los trabajos finales aprobados <strong>solo si el autor lo autorizó expresamente</strong> y se revisó que no contenga datos que identifiquen a pacientes.</p>
+    <label style="font-size:13.5px;"><input type="checkbox" ${t.autorizaDifusion?'checked':''} ${isCETI?'':'disabled'} onchange="toggleAutorizaDifusion('${t.id}', this.checked)"> El autor autoriza la difusión de este trabajo en la Biblioteca</label>
+    ${t.autorizaDifusion && t.fechaAutorizacion ? `<p style="font-size:12.5px; color:var(--ink-soft); margin-top:8px;">Autorización registrada el ${fmtDate(t.fechaAutorizacion)}.</p>` : ''}
+    ${!isCETI ? `<p style="font-size:12.5px; color:var(--ink-soft); margin-top:8px;">Solo la Comisión puede registrar esta autorización.</p>` : ''}`}
   </div>`;
 
   if(isCETI){
@@ -1505,7 +1532,7 @@ function renderListaCapacitaciones(){
 
   const toolbar = `
     <div class="toolbar">
-      <input type="text" placeholder="Buscar capacitación…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <input type="text" placeholder="Buscar capacitación…" value="${esc(state.filterText)}" data-focuskey="buscar" oninput="state.filterText=this.value; render();">
       <button class="btn" onclick="conAccesoComite(()=>abrirModalCurso())">+ Nueva capacitación</button>
     </div>
   `;
@@ -1716,6 +1743,90 @@ function descargarCertificado(cursoId){
   doc.save(nombreArchivo);
 }
 
+/* ---------------- biblioteca ---------------- */
+
+function fechaAprobacionFinal(t){
+  const r = ultimaRonda(t.trabajoFinal);
+  return r && r.fechaResultado ? r.fechaResultado : '';
+}
+
+function abrirAdjuntoBiblioteca(trabajoId, adjId){
+  const t = state.trabajos.find(x=>x.id===trabajoId);
+  const a = t && (t.adjuntos || []).find(x=>x.id===adjId);
+  if(!a){ alert('No se encontró el archivo.'); return; }
+  descargarAdjunto(a.id, a.nombre, a.mimeType, a.tipo, a.url);
+}
+
+function abrirExpedienteDesdeBiblioteca(id){
+  if(!state.isAdmin) return;
+  state.role = 'ceti';
+  state.selectedId = id;
+  render();
+}
+
+async function toggleAutorizaDifusion(id, valor){
+  const t = state.trabajos.find(x=>x.id===id);
+  if(!t || !state.isAdmin) return;
+  t.autorizaDifusion = !!valor;
+  t.fechaAutorizacion = valor ? today() : '';
+  await guardarTrabajo(t);
+  render();
+}
+
+function cardBiblioteca(t){
+  const docs = (t.adjuntos || []).filter(a => a.categoria === 'Trabajo final');
+  const fecha = fechaAprobacionFinal(t);
+  const botones = docs.length
+    ? docs.map(a => `<button class="btn secondary small" onclick="abrirAdjuntoBiblioteca('${t.id}','${a.id}')">${a.tipo==='link' ? 'Abrir enlace' : 'Ver / descargar'}${docs.length>1 ? ' · ' + esc(a.nombre) : ''}</button>`).join(' ')
+    : `<span style="font-size:12.5px; color:var(--ink-soft);">El documento todavía no está cargado en el expediente.</span>`;
+  return `<div class="expediente aprobado" style="cursor:default;">
+    <div class="exp-top">
+      <div>
+        <h3>${esc(t.titulo)}</h3>
+        <div class="exp-meta">${esc(t.tipo)} · ${esc(t.investigador.nombre)}${t.investigador.servicio ? ' · ' + esc(t.investigador.servicio) : ''}${t.investigador.anio ? ' · ' + esc(t.investigador.anio) : ''}</div>
+        <div class="exp-meta">${t.director ? 'Director/Tutor: ' + esc(t.director) + ' · ' : ''}Aprobado${fecha ? ' el ' + fmtDate(fecha) : ''}</div>
+      </div>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">${botones}</div>
+  </div>`;
+}
+
+function renderBiblioteca(){
+  const q = (state.filterBiblio || '').trim().toLowerCase();
+  const aprobados = state.trabajos.filter(t => estadoTrabajoFinal(t) === 'aprobado');
+  const coincide = t => !q || [t.titulo, t.tipo, t.director, t.investigador.nombre, t.investigador.servicio, t.investigador.anio]
+    .some(v => (v || '').toLowerCase().includes(q));
+  const porFecha = (a, b) => (fechaAprobacionFinal(b) || '').localeCompare(fechaAprobacionFinal(a) || '');
+
+  const publicados = aprobados.filter(t => t.autorizaDifusion && coincide(t)).sort(porFecha);
+  const totalPublicados = aprobados.filter(t => t.autorizaDifusion).length;
+  const pendientes = aprobados.filter(t => !t.autorizaDifusion).sort(porFecha);
+
+  let html = `<div class="panel">
+    <h2>Biblioteca</h2>
+    <p style="margin-top:8px; color:var(--ink-soft);">Trabajos finales aprobados por la Comisión, cuyos autores autorizaron su difusión. ${totalPublicados} ${totalPublicados === 1 ? 'trabajo publicado' : 'trabajos publicados'}.</p>
+  </div>
+  <div class="toolbar">
+    <input type="text" placeholder="Buscar por título, autor, servicio o director…" value="${esc(state.filterBiblio)}" data-focuskey="buscar-biblio" oninput="state.filterBiblio=this.value; render();">
+  </div>`;
+
+  if(!publicados.length){
+    html += `<div class="empty">${totalPublicados === 0
+      ? 'Todavía no hay trabajos en la Biblioteca. Aparecen acá cuando el trabajo final está aprobado y el autor autorizó su difusión.'
+      : 'No hay trabajos que coincidan con la búsqueda.'}</div>`;
+  } else {
+    html += publicados.map(cardBiblioteca).join('');
+  }
+
+  if(state.isAdmin && pendientes.length){
+    html += `<div class="panel" style="margin-top:22px;">
+      <div class="section-title">Aprobados, pendientes de autorización del autor (solo lo ve la Comisión)</div>
+      ${pendientes.map(t => `<div class="resultado-row"><span>${esc(t.titulo)} — ${esc(t.investigador.nombre)}</span><button class="btn secondary small" onclick="abrirExpedienteDesdeBiblioteca('${t.id}')">Abrir expediente</button></div>`).join('')}
+    </div>`;
+  }
+  return html;
+}
+
 /* ---------------- impacto ---------------- */
 
 // Estimación conservadora, con la misma metodología usada para la feria:
@@ -1887,7 +1998,7 @@ function renderListaResidentes(){
 
   const toolbar = `
     <div class="toolbar">
-      <input type="text" placeholder="Buscar residente por nombre…" value="${esc(state.filterText)}" oninput="state.filterText=this.value; render();">
+      <input type="text" placeholder="Buscar residente por nombre…" value="${esc(state.filterText)}" data-focuskey="buscar" oninput="state.filterText=this.value; render();">
       <button class="btn" onclick="conAccesoCETI(()=>abrirModalResidente())">+ Agregar residente</button>
     </div>
   `;
