@@ -396,6 +396,8 @@ async function loadData(){
     state.trabajos = resTrabajos.data.map(row => {
       const t = row.data;
       if(!t.adjuntos) t.adjuntos = [];
+      // Dueño del expediente (columna owner_id): no se guarda dentro de data.
+      Object.defineProperty(t, '_ownerId', { value: row.owner_id || null, writable: true, enumerable: false });
       return t;
     });
   }
@@ -1073,7 +1075,6 @@ async function subirAdjunto(trabajoId){
     const path = trabajoId + '/' + adjId + '_' + file.name;
     const { error: upErr } = await sb.storage.from(BUCKET).upload(path, file);
     if(upErr) throw upErr;
-    const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(path);
 
     const t = state.trabajos.find(x=>x.id===trabajoId);
     t.adjuntos.push({
@@ -1083,7 +1084,7 @@ async function subirAdjunto(trabajoId){
       mimeType: file.type || 'application/octet-stream',
       size: file.size,
       path: path,
-      url: urlData.publicUrl,
+      url: '',
       categoria: document.getElementById('a_categoria').value,
       subidoPor: document.getElementById('a_subidopor').value.trim() || '—',
       fecha: today()
@@ -1099,16 +1100,32 @@ async function subirAdjunto(trabajoId){
   }
 }
 
-function descargarAdjunto(adjId, nombre, mimeType, tipo, url){
-  if(!url){ alert('No se encontró el archivo.'); return; }
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = nombre;
-  a.target = '_blank';
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+function buscarAdjunto(adjId){
+  for(const t of state.trabajos){
+    const a = (t.adjuntos || []).find(x => x.id === adjId);
+    if(a) return a;
+  }
+  return null;
+}
+
+// Los archivos están en un espacio privado: se pide un link temporal (10 min)
+// cada vez que alguien con permiso abre un documento.
+async function descargarAdjunto(adjId, nombre, mimeType, tipo, url){
+  const adj = buscarAdjunto(adjId);
+  if(tipo === 'link' || (adj && adj.tipo === 'link') || !(adj && adj.path)){
+    if(!url){ alert('No se encontró el archivo.'); return; }
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
+  const ventana = window.open('', '_blank'); // se abre ya, para que el navegador no la bloquee
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(adj.path, 600, { download: nombre || true });
+  if(error || !data || !data.signedUrl){
+    if(ventana) ventana.close();
+    alert('No se pudo abrir el documento. Puede que no tengas permiso para verlo.');
+    return;
+  }
+  if(ventana){ ventana.location.href = data.signedUrl; }
+  else { window.location.href = data.signedUrl; }
 }
 
 async function eliminarAdjunto(trabajoId, adjId){
@@ -1275,9 +1292,15 @@ function render(){
   }
 }
 
+function esMio(t){
+  const uidActual = state.session && state.session.user ? state.session.user.id : null;
+  // Un trabajo recién creado en esta sesión todavía no trae owner_id: es mío.
+  return t._ownerId === undefined || t._ownerId === uidActual;
+}
+
 function renderListaAlumno(){
   const filtro = state.filterText.toLowerCase();
-  const propios = state.trabajos.filter(t => !filtro || t.investigador.nombre.toLowerCase().includes(filtro));
+  const propios = state.trabajos.filter(t => esMio(t) && (!filtro || t.investigador.nombre.toLowerCase().includes(filtro)));
 
   const refBox = `
     <button class="ref-toggle" onclick="toggleRef()">Ver plazos de presentación según año de residencia</button>
