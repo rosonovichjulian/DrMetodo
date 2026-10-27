@@ -845,7 +845,7 @@ async function registrarse(){
   const err = document.getElementById('auth_error');
   err.style.display = 'none';
   if(nombre.length < 3 || !nombre.includes(' ')){ err.textContent = 'Escribí tu nombre y apellido completos (así van a salir en tus certificados).'; err.style.display='block'; return; }
-  if(pass.length < 6){ err.textContent = 'La contraseña debe tener al menos 6 caracteres.'; err.style.display='block'; return; }
+  if(pass.length < 8){ err.textContent = 'La contraseña debe tener al menos 8 caracteres.'; err.style.display='block'; return; }
   const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { nombre } } });
   if(error){ err.textContent = error.message; err.style.display = 'block'; return; }
   if(data && data.session){
@@ -874,7 +874,7 @@ async function guardarNuevaContrasena(){
   const p2 = document.getElementById('rec_pass2').value;
   const err = document.getElementById('auth_error');
   err.style.display = 'none';
-  if(p1.length < 6){ err.textContent = 'La contraseña debe tener al menos 6 caracteres.'; err.style.display='block'; return; }
+  if(p1.length < 8){ err.textContent = 'La contraseña debe tener al menos 8 caracteres.'; err.style.display='block'; return; }
   if(p1 !== p2){ err.textContent = 'Las contraseñas no coinciden.'; err.style.display='block'; return; }
   const { error } = await sb.auth.updateUser({ password: p1 });
   if(error){ err.textContent = error.message; err.style.display = 'block'; return; }
